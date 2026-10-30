@@ -74,7 +74,7 @@ Why these toolchains:
 What the scripts need: CMake, Ninja, ccache and nasm; for `linux-aarch64`
 clang, lld and `g++-aarch64-linux-gnu` (for its glibc and libgcc); docker or
 podman for `wasm` and Windows; ffmpeg, `qemu-user` and
-`libc6-arm64-cross` for `test.sh`; ffmpeg (with libx264, libaom, libsvtav1)
+`libc6-arm64-cross`, `libstdc++6-arm64-cross` and `libgcc-s1-arm64-cross` for `test.sh`; ffmpeg (with libx264, libaom, libsvtav1)
 and python3 for `bench.sh`.
 
 Knobs shared by the scripts (`build/lib.sh`): `WORK=<dir>` (work trees,

@@ -191,7 +191,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
-            qemu-user libc6-arm64-cross
+            qemu-user libc6-arm64-cross libstdc++6-arm64-cross libgcc-s1-arm64-cross
 
       - name: The release gate
         run: ./test.sh linux-x86_64 linux-aarch64 wasm windows-x86_64 windows-aarch64

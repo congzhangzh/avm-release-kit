@@ -15,7 +15,8 @@
 #    wine in its build image, macos-* natively on a Mac (x86_64 through
 #    Rosetta 2 on Apple Silicon). windows-aarch64 has nothing to run it on
 #    here: it is reported as built, not tested, and does not fail the run.
-# Needs ffmpeg (without VECTORS); qemu-user and the aarch64 cross glibc
+# Needs ffmpeg (without VECTORS); qemu-user and the aarch64 cross glibc,
+# libstdc++ and libgcc_s (the apps link the C++ runtime)
 # (/usr/aarch64-linux-gnu) for linux-aarch64; docker or podman for wasm and
 # windows-x86_64. Prints one line per check and exits non-zero on any
 # failure. DIST and WORK as for build.sh.
