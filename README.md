@@ -103,10 +103,11 @@ their `.asm` source (in CI, the runner's work directory).
 
 1. **Encoder ↔ decoder agreement.** The x86_64 `avmenc` encodes two synthetic
    640×360 clips (scrolling text; ffmpeg's `testsrc2` for camera-like motion)
-   in realtime at speeds 6, 7, 8, 9 and in good quality with lookahead (TIP,
+   in realtime at speeds 6, 7, 8, 9, 10, at 9 also on 4 threads with row
+   multi-threading and 2 tiles, and in good quality with lookahead (TIP,
    optical flow), each with `--test-decode=fatal`: every frame the encoder
    reconstructs must equal what its decoder makes of the stream.
-2. **Cross-target conformance.** Every target decodes all ten vectors to the
+2. **Cross-target conformance.** Every target decodes all fourteen vectors to the
    MD5s of the x86_64 decoder: `linux-aarch64` under `qemu-aarch64`, `wasm`
    under node in its build image, `windows-x86_64` under wine in its build
    image, `macos-*` natively. A SIMD kernel that is not bit-exact on its

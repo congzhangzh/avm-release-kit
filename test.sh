@@ -5,7 +5,7 @@
 #
 # 1. Vectors: the linux-x86_64 avmenc encodes two synthetic 640x360 clips
 #    (scrolling text, and ffmpeg's testsrc2 for camera-like motion) in
-#    realtime at speeds 6 to 9 and in good quality with lookahead (TIP,
+#    realtime at speeds 6 to 10 (and 9 on 4 threads) and in good quality with lookahead (TIP,
 #    optical flow), each with --test-decode=fatal, so encoder and decoder
 #    agree on every frame. Their decoded MD5s on linux-x86_64 are the
 #    reference. VECTORS=<dir> takes the .obu and .md5 files an earlier run
@@ -48,6 +48,9 @@ declare -A CFG=(
     [rt7]="--rt --cpu-used=7 --lag-in-frames=0 --end-usage=q --qp=160"
     [rt8]="--rt --cpu-used=8 --lag-in-frames=0 --end-usage=q --qp=160"
     [rt9]="--rt --cpu-used=9 --lag-in-frames=0 --end-usage=q --qp=160"
+    [rt10]="--rt --cpu-used=10 --lag-in-frames=0 --end-usage=q --qp=160"
+    # threaded paths (row multi-threading, tiles packed on workers)
+    [rt9mt]="--rt --cpu-used=9 --lag-in-frames=0 --end-usage=q --qp=160 --threads=4 --row-mt=1 --tile-columns=1"
     [good5]="--good --cpu-used=5 --lag-in-frames=8 --end-usage=q --qp=140"
 )
 

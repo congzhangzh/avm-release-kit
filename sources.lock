@@ -2,12 +2,13 @@
 # A git+ URL pins a commit (the last column), a docker: URL an image digest,
 # any other URL a file's SHA-256. Bump a line, then rebuild.
 #
-# AVM (the AV2 reference codec): our release, not an upstream one. Until the
-# realtime / NEON work is pushed to the fork, this pins upstream main and a
-# local build takes SRC_avm=<checkout> (see README.md, "Local sources").
+# AVM (the AV2 reference codec): our release, not an upstream one, picked
+# from the fork's integration-avm (upstream main + feature-avm-rt) once it
+# passes test.sh. A local build takes SRC_avm=<checkout> (README, "Local
+# sources").
 #
-# name        version   url                                          commit / sha256
-avm           upstream  git+https://github.com/AOMediaCodec/avm.git   edaf3ebc7ce3666290003f70a66efe5a508982a1
+# name        version     url                                       commit / sha256
+avm           20261030.1  git+https://github.com/congzhangzh/avm.git dc33252c968799c9a0053236f723a44e3c5460f3
 #
 # The WebAssembly toolchain, the same image rdp-release-kit builds its web
 # client with, so libavm links into that client unchanged.
