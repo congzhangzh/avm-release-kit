@@ -1,0 +1,8 @@
+# The WebAssembly build environment: the pinned emsdk image (sources.lock,
+# passed as BASE) with the build tools AVM needs on top: Ninja, ccache, perl
+# for the run-time CPU detection generator (rtcd.pl).
+ARG BASE
+FROM ${BASE}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ninja-build ccache perl \
+    && rm -rf /var/lib/apt/lists/*

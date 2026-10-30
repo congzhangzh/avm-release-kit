@@ -1,0 +1,13 @@
+# The sources the kit builds, pinned: name, version, url, commit or sha256.
+# A git+ URL pins a commit (the last column). Bump a line, then rebuild.
+#
+# AVM (the AV2 reference codec): our release, not an upstream one. Until the
+# realtime / NEON work is pushed to the fork, this pins upstream main and a
+# local build takes SRC_avm=<checkout> (see README.md, "Local sources").
+#
+# name   version   url                                          commit
+avm      upstream  git+https://github.com/AOMediaCodec/avm.git   edaf3ebc7ce3666290003f70a66efe5a508982a1
+#
+# The WebAssembly toolchain, the same image rdp-release-kit builds its web
+# client with, so libavm links into that client unchanged.
+emsdk    6.0.12    docker:emscripten/emsdk                       sha256:77638e6c215a65f25a704c0c831d5c2463a8c0468a58c6cb82489dbe621dfa05
