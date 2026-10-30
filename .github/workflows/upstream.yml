@@ -1,0 +1,90 @@
+name: upstream
+
+# Once a day, compares every pin in sources.lock with upstream
+# (check-upstream.sh: AVM's main branch, the emsdk image, llvm-mingw, the
+# Debian image) and opens one issue per update found. It changes nothing: a
+# person bumps sources.lock in a commit on main. An update waits two weeks at
+# most (docs/RELEASE.md, "Keeping pins fresh").
+on:
+  schedule:
+    - cron: '41 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Compare with upstream
+        run: ./check-upstream.sh | tee upstream.txt
+
+      # one issue per pin: its title names the pinned value, so a moving
+      # upstream (AVM's main moves every few days) does not open one a day;
+      # the body says how far upstream is now
+      - name: One issue per update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          awk '$4 == "update" { print $1, $2, $3 }' upstream.txt | while read -r name have latest; do
+            case $name in
+              avm) title="Update available: avm $have → upstream main" ;;
+              *) title="Update available: $name $have → $latest" ;;
+            esac
+            line=$(awk -v n="$name" '$1 == n' upstream.txt)
+            if gh issue list --state all --search "in:title \"$title\"" --json title -q '.[].title' | grep -qxF "$title"; then
+              echo "known: $title ($line)"
+              continue
+            fi
+            case $name in
+              avm) how="Upstream main is at $latest now: \`$line\`. Rebase the feature branches and rebuild the integration on it, test it (docs/RELEASE.md, \"Where the source comes from\"), pick a release on the fork and pin it in sources.lock. Or, while the kit pins upstream main, move the pin to the new head." ;;
+              emsdk) how="Docker Hub has emscripten/emsdk:$latest. The kit builds with the image rdp-release-kit pins, so libavm links into its web client: bump both together (version and the image digest)." ;;
+              llvm_mingw) how="llvm-mingw $latest is out. Change its line in sources.lock (version, URL, the SHA-256 of the downloaded ucrt-ubuntu-22.04-x86_64 archive), in step with rdp-release-kit." ;;
+              *) how="Change its line in sources.lock." ;;
+            esac
+            gh issue create --title "$title" --label enhancement --body "$how
+
+          Then push to main: CI builds and tests every target with it and, if all pass, publishes the release.
+
+          Found by the daily upstream check (check-upstream.sh)."
+            echo "opened: $title"
+          done
+
+      # An issue whose pin has moved since is done: sources.lock no longer
+      # pins the value its title starts from
+      - name: Close the updates done
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list --state open --limit 200 --json number,title \
+              -q '.[] | select(.title | startswith("Update available:")) | "\(.number) \(.title)"' |
+            while read -r number _ _ name have _; do
+              pinned=$(awk -v n="$name" '$1 == n { print $2 }' upstream.txt)
+              if [ -n "$pinned" ] && [ "$pinned" != "$have" ]; then
+                gh issue close "$number" --comment "sources.lock pins $name $pinned now."
+                echo "closed: #$number $name $have"
+              fi
+            done
+
+      # Two weeks after its issue opened, an update is bumped or deferred:
+      # the deferred label, and in the issue why. Until then this run fails
+      # every day, and GitHub notifies whoever last changed the schedule above.
+      - name: No update waits longer than two weeks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          late=$(gh issue list --state open --limit 200 --json number,title,createdAt,labels |
+            jq -r --arg cutoff "$(date -u -d '14 days ago' +%FT%TZ)" '.[]
+              | select(.title | startswith("Update available:"))
+              | select(any(.labels[]; .name == "deferred") | not)
+              | select(.createdAt < $cutoff)
+              | "#\(.number) \(.title), open since \(.createdAt[0:10])"')
+          if [ -n "$late" ]; then
+            echo "$late"
+            echo "::error::updates waiting more than two weeks: bump them in sources.lock, or label the issue deferred and say why in it"
+            exit 1
+          fi

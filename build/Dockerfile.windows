@@ -1,0 +1,11 @@
+# The Windows build environment: Debian (sources.lock, passed as BASE) with
+# the tools AVM's build needs around the compiler: CMake, Ninja, ccache, perl
+# for the run-time CPU detection generator (rtcd.pl), nasm for the x86_64
+# assembly, and wine to run the x86_64 decoder in test.sh. The compiler,
+# llvm-mingw, is mounted at /llvm-mingw (build/lib.sh, llvm_mingw).
+ARG BASE
+FROM ${BASE}
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends cmake ninja-build ccache perl nasm \
+       wine wine64 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*

@@ -1,0 +1,366 @@
+name: kit
+
+# Builds libavm, avmenc and avmdec for every target: Linux x86_64 and ARM64
+# (clang cross build), WebAssembly, Windows x86_64 and ARM64 (llvm-mingw),
+# macOS arm64 and x86_64 (Apple clang); runs the release gate (test.sh) on
+# each target that something here can run; benchmarks the Linux targets
+# natively (bench.sh, informational). Every push to main that passes the gate
+# publishes the rolling release <YYYYMMDD>.<N>, with the archives, their
+# .sha256, SHA256SUMS and the benchmark report; a pull request only builds
+# and tests (docs/RELEASE.md).
+on:
+  push:
+    branches: [main]
+    # a change no build reads makes no new release
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE', '.github/workflows/upstream.yml', 'check-upstream.sh']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The kit's own scripts, without building: lint, and the publishing logic
+  # against a fake gh (no network)
+  scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: shellcheck -x build.sh build-windows.sh build-macos.sh test.sh bench.sh check-upstream.sh build/*.sh test/*.sh
+      - name: The bench script compiles
+        run: python3 -m py_compile build/bench.py
+      - run: test/publish.sh
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [linux-x86_64, linux-aarch64, wasm]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache the AVM source
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/mirror
+            ~/.cache/avm-release-kit/src
+          key: avm-src-${{ hashFiles('sources.lock') }}
+
+      # compiled objects from the last run (a pull request's own cache is
+      # never restored on main)
+      - name: Cache compiled objects
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/ccache-native
+            ~/.cache/avm-release-kit/ccache-wasm
+          key: ccache-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.target }}-
+
+      # clang and lld cross-compile ARM64; gcc's cross packages bring the
+      # ARM64 glibc and libgcc that clang links against
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache nasm \
+            ${{ matrix.target == 'linux-aarch64' && 'clang lld g++-aarch64-linux-gnu' || '' }}
+
+      - name: Build
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: CCACHE_DIR=$HOME/.cache/avm-release-kit/ccache-native ./build.sh ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: avm-${{ matrix.target }}
+          path: |
+            dist/${{ matrix.target }}/
+            dist/avm-*-${{ matrix.target }}.tar.gz*
+          if-no-files-found: error
+          # only carries files to later jobs and the release; 3 days, not
+          # the default 90
+          retention-days: 3
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache the AVM source and llvm-mingw
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/mirror
+            ~/.cache/avm-release-kit/src
+            ~/.cache/avm-release-kit/sources
+          key: avm-src-windows-${{ hashFiles('sources.lock') }}
+
+      - name: Cache compiled objects
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/avm-release-kit/ccache-windows
+          key: ccache-windows-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: ccache-windows-${{ matrix.arch }}-
+
+      - name: Build
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: ./build-windows.sh ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: avm-windows-${{ matrix.arch }}
+          path: |
+            dist/windows-${{ matrix.arch }}/
+            dist/avm-*-windows-${{ matrix.arch }}.tar.gz*
+          if-no-files-found: error
+          retention-days: 3
+
+  # Natively on each architecture: arm64 on macos-15, x86_64 on
+  # macos-15-intel (GitHub's last Intel image). build-macos.sh has never run
+  # anywhere else: this job is its test
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache the AVM source
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/mirror
+            ~/.cache/avm-release-kit/src
+          key: avm-src-macos-${{ hashFiles('sources.lock') }}
+
+      - name: Cache compiled objects
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/avm-release-kit/ccache-macos
+          key: ccache-macos-${{ matrix.arch }}-${{ github.sha }}
+          restore-keys: ccache-macos-${{ matrix.arch }}-
+
+      - name: Build tools
+        run: brew install ninja nasm ccache
+
+      - name: Build
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: ./build-macos.sh ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: avm-macos-${{ matrix.arch }}
+          path: |
+            dist/macos-${{ matrix.arch }}/
+            dist/avm-*-macos-${{ matrix.arch }}.tar.gz*
+          if-no-files-found: error
+          retention-days: 3
+
+  # The release gate: the vectors from the x86_64 encoder, then every target
+  # this runner can run decodes them (aarch64 under qemu, wasm under node,
+  # Windows x86_64 under wine; Windows ARM64 is reported as built, not tested)
+  test:
+    needs: [linux, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: avm-*
+          path: dist
+          merge-multiple: true
+      # artifacts keep no file modes
+      - run: chmod +x dist/*/bin/*
+
+      - name: Test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core \
+            qemu-user libc6-arm64-cross
+
+      - name: The release gate
+        run: ./test.sh linux-x86_64 linux-aarch64 wasm windows-x86_64 windows-aarch64
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vectors
+          path: |
+            ~/.cache/avm-release-kit/vectors/*.obu
+            ~/.cache/avm-release-kit/vectors/*.md5
+          if-no-files-found: error
+          retention-days: 3
+
+  # The macOS builds decode the gate's vectors natively
+  macos-test:
+    needs: [macos, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: avm-macos-${{ matrix.arch }}
+          path: dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: vectors
+          path: vectors
+      - run: chmod +x dist/*/bin/*
+      # test.sh needs bash 4 (macOS has 3.2)
+      - run: brew install bash
+      - name: Decode the vectors
+        run: VECTORS=$PWD/vectors "$(brew --prefix)/bin/bash" ./test.sh macos-${{ matrix.arch }}
+
+  # Informational: each Linux target on a machine that runs it natively,
+  # the released binary itself (the ARM64 one is the cross build). A failure
+  # here does not hold the release back; its notes then say why.
+  bench:
+    needs: [linux]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: avm-${{ matrix.target }}
+          path: dist
+      - run: chmod +x dist/*/bin/*
+      - name: Bench tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fontconfig
+      - name: Benchmark
+        env:
+          BENCH_TARGET: ${{ matrix.target }}
+        run: ./bench.sh --res 720p,1440p --frames 60
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bench-${{ matrix.target }}
+          path: dist/bench/bench-${{ matrix.target }}.json
+          if-no-files-found: error
+          retention-days: 3
+
+  # The kit's rolling release <YYYYMMDD>.<N>: every push to main (or a run
+  # by hand from main) whose targets all pass the gate publishes them, once
+  # and never replaced, as GitHub's latest release. The benchmark rides
+  # along when it ran.
+  release:
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      needs.scripts.result == 'success' && needs.test.result == 'success' &&
+      needs.macos-test.result == 'success'
+    needs: [scripts, test, macos-test, bench]
+    runs-on: ubuntu-24.04
+    # one at a time across commits: each counts N from the releases before
+    # it, so two pushes close together get .1 and .2
+    concurrency: publish-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: avm-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: bench-*
+          path: dist/bench-parts
+          merge-multiple: true
+
+      - name: The name
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          read -r version commit < <(awk '$1 == "avm" { print $2, $4 }' sources.lock)
+          # the key names the inputs; a second run of this commit finds its release
+          key="AVM $version ${commit:0:12} (kit ${GITHUB_SHA:0:12})"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "tag=$(build/release-tag.sh "$key")" >> "$GITHUB_OUTPUT"
+
+      - name: The benchmark report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          BENCH: ${{ needs.bench.result }}
+        run: |
+          parts=(dist/bench-parts/bench-*.json)
+          [ -e "${parts[0]}" ] || parts=()
+          why=
+          if [ ${#parts[@]} = 0 ]; then
+            why="the bench job ended with $BENCH and left no results"
+          elif [ "$BENCH" != success ]; then
+            measured=$(for p in "${parts[@]}"; do basename "$p" .json; done | sed 's/^bench-//' | paste -sd, -)
+            why="partly, the bench job ended with $BENCH; measured: $measured"
+          fi
+          notrun=()
+          [ -z "$why" ] || notrun=(--not-run "$why")
+          # the previous release's report, to compare with
+          prev=$(gh release view --json tagName -q .tagName 2> /dev/null || true)
+          prevopt=()
+          if [ -n "$prev" ] && gh release download "$prev" -p "bench-$prev.json" -D dist/prev 2> /dev/null; then
+            prevopt=(--previous "dist/prev/bench-$prev.json")
+          fi
+          OUT=dist/bench ./bench.sh report --version "$TAG" "${prevopt[@]}" "${notrun[@]}" "${parts[@]}"
+          echo "BENCH_NOT_RUN=$why" >> "$GITHUB_ENV"
+
+      - name: The files
+        run: |
+          mkdir -p upload
+          cp dist/avm-*.tar.gz dist/avm-*.tar.gz.sha256 upload/
+          cp dist/bench/bench-*.md dist/bench/bench-*.json upload/
+          rm -f upload/bench-summary.md
+          (cd upload && sha256sum -- * > ../SHA256SUMS) && mv SHA256SUMS upload/
+          ls -l upload
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: upload/*
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          KEY: ${{ steps.tag.outputs.key }}
+        run: |
+          read -r version commit < <(awk '$1 == "avm" { print $2, $4 }' sources.lock)
+          summary="Rolling release $TAG of avm-release-kit, built and tested from $GITHUB_SHA: libavm (the AV2 reference codec, AVM $version, commit ${commit:0:12}) with its headers, avm.pc, avmenc and avmdec, for Linux, Windows and macOS on x86_64 and ARM64, and the WebAssembly decoder. Published once, never replaced. Check a download: \`sha256sum -c --ignore-missing SHA256SUMS\`; its origin: \`gh attestation verify <file> -R $GITHUB_REPOSITORY\`."
+          notes=$(build/release-notes.sh "$summary" upload dist/bench/bench-summary.md)$'\n\n'"<!-- kit-key: $KEY -->"
+          build/publish-release.sh "$TAG" "AVM for the RDP projects $TAG" "$notes" upload/*

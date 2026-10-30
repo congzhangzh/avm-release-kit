@@ -1,3 +1,4 @@
 dist/
 work/
 sources.local
+__pycache__/
