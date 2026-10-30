@@ -123,10 +123,16 @@ def p95(values):
     return s[min(len(s) - 1, int(round(0.95 * (len(s) - 1))))]
 
 
-def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix):
+# Video-like content also runs at speed 10 (realtime only: the non-RD work
+# for camera/video) with 4 tile columns, as xrdp would for video.
+AVM_RT_VIDEO = [a for a in AVM_RT if not a.startswith(("--cpu-used", "--tile-columns"))] + \
+    ["--cpu-used=10", "--tile-columns=2"]
+
+
+def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix, video=False):
     obu = os.path.join(tmp, "avm.obu")
     cmd = runner_prefix + [os.path.join(bindir, "avmenc"), clip, "-o", obu,
-                           f"--limit={frames}"] + AVM_RT
+                           f"--limit={frames}"] + (AVM_RT_VIDEO if video else AVM_RT)
     if screen:
         cmd.append("--tune-content=screen")
     r = run(cmd)
@@ -154,7 +160,9 @@ def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix):
         raise RuntimeError(f"avmdec: {d.stderr.strip()[-300:]}")
     inter_mean = statistics.mean(inter) if inter else None
     return {
-        "codec": "avm", "preset": "rt cpu-used=9" + (" screen" if screen else ""),
+        "codec": "avm-s10" if video else "avm",
+        "preset": ("rt cpu-used=10 4 tiles" if video else
+                   "rt cpu-used=9" + (" screen" if screen else "")),
         "frames": len(stats), "keyframe_ms": key[0] if key else None,
         "inter_mean_ms": inter_mean, "inter_p95_ms": p95(inter) if inter else None,
         "enc_fps": 1000.0 / inter_mean if inter_mean else None,
@@ -278,11 +286,13 @@ def cmd_run(a):
                 continue
             out["clips"][f"{name}-{res}"] = {"frames": frames, "size": "%dx%d" % RES[res],
                                              "md5": md5(clip), "screen": screen}
-            for codec in ["avm"] + baselines:
+            avm_rows = ["avm"] + ([] if screen else ["avm-s10"])
+            for codec in avm_rows + baselines:
                 t0 = time.time()
                 try:
-                    if codec == "avm":
-                        r = bench_avm(bindir, clip, screen, frames, tmp, a.prefix.split())
+                    if codec in ("avm", "avm-s10"):
+                        r = bench_avm(bindir, clip, screen, frames, tmp, a.prefix.split(),
+                                      video=codec == "avm-s10")
                     else:
                         r = bench_baseline(codec, clip, screen, frames, tmp)
                 except (RuntimeError, OSError, ValueError) as e:
@@ -409,7 +419,8 @@ def cmd_report(a):
     s = []
     if a.not_run:
         s += [f"Benchmark not run: {a.not_run}.", ""]
-    rows = [(run_["target"], r) for run_ in runs for r in run_["results"] if r["codec"] == "avm"]
+    rows = [(run_["target"], r) for run_ in runs for r in run_["results"]
+            if r["codec"] in ("avm", "avm-s10")]
     if rows:
         x264 = index(doc)
         s += ["| target | res | clip | AVM enc fps | AVM kbps | AVM PSNR-Y | AVM dec fps | x264 ultrafast enc fps / kbps / PSNR-Y |",
@@ -417,7 +428,7 @@ def cmd_report(a):
         for target, r in rows:
             x = x264.get((target, r["res"], r["clip"], "x264-ultrafast"))
             xs = f"{fmt(x['enc_fps'])} / {fmt(x['kbps'], 0)} / {fmt(x['psnr_y'], 2)}" if x else "–"
-            s.append(f"| {target} | {r['res']} | {r['clip']} | {fmt(r['enc_fps'])} | "
+            s.append(f"| {target} | {r['res']} | {r['clip']}{' (speed 10)' if r['codec'] == 'avm-s10' else ''} | {fmt(r['enc_fps'])} | "
                      f"{fmt(r['kbps'], 0)} | {fmt(r['psnr_y'], 2)} | {fmt(r['dec_fps'])} | {xs} |")
         s += ["", f"Full report: `bench-{a.version}.md` (and `.json`); informational, CI runners are noisy."]
         if changes:

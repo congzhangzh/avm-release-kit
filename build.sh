@@ -47,7 +47,10 @@ build_wasm() {
     local link="-pthread -sINITIAL_MEMORY=134217728 -sALLOW_MEMORY_GROWTH=1"
     link+=" -sSTACK_SIZE=4194304 -sDEFAULT_PTHREAD_STACK_SIZE=4194304"
     link+=" -sPTHREAD_POOL_SIZE=8 -sNODERAWFS=1 -sEXIT_RUNTIME=1"
-    local opts=("${COMMON[@]}" -DAVM_TARGET_CPU=generic -DCONFIG_AV2_ENCODER=0
+    # AVM_TARGET_CPU=x86 under Emscripten: AVM's SSE2..SSE4.1 kernels built as
+    # WebAssembly SIMD128 (every current browser and node run it); the few
+    # kernels written in x86 assembly stay C. Bit-exact with x86_64.
+    local opts=("${COMMON[@]}" -DAVM_TARGET_CPU=x86 -DCONFIG_AV2_ENCODER=0
                 -DCONFIG_MULTITHREAD=1 "-DCMAKE_C_FLAGS=-pthread -O2"
                 "-DCMAKE_CXX_FLAGS=-pthread -O2" "-DCMAKE_EXE_LINKER_FLAGS=$link"
                 -DCMAKE_INSTALL_PREFIX=/stage)
