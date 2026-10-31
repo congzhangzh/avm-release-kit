@@ -1,0 +1,12 @@
+# ThreadSanitizer suppressions for tsan.sh. Each entry names one function and
+# says why its report is not a bug in the output; anything else fails the gate.
+#
+# AVM's AVX2 MHCCP neighbour fetch (av2/common/x86/cfl_avx2.c) reads the
+# reconstructed luma above and left of a block 32 columns at a time, past the
+# region it was asked for (ref_width); at a tile's right edge that reaches
+# into the next tile, which another thread is coding. The values read past
+# ref_width are never used (the MHCCP derivation reads ref_width / 2 columns),
+# and multi-threaded encodes of these paths give the one-thread stream
+# (avm-bench results/determinism-rd.*). An upstream kernel; MHCCP runs at
+# realtime speeds up to 8 and in good quality, not at 9 and 10.
+race:av2_mhccp_implicit_fetch_neighbor_luma_420_avx2

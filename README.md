@@ -68,6 +68,7 @@ Why these toolchains:
 ./build-windows.sh                            # windows-x86_64 and windows-aarch64 (docker or podman)
 ./build-macos.sh                              # on a Mac: macos-arm64 and/or macos-x86_64
 ./test.sh linux-x86_64 linux-aarch64 wasm windows-x86_64 windows-aarch64   # the release gate
+./tsan.sh                                     # the thread-safety gate (gcc's ThreadSanitizer)
 ./bench.sh --res 720p                         # the benchmark of this machine's native target
 ```
 
@@ -118,6 +119,26 @@ Note: upstream AVM main at the pinned commit fails step 1 in realtime mode
 (`Invalid intrabc dv` on the first keyframe at every speed); the realtime
 fixes on the fork's feature branch pass it. See CHANGELOG.md.
 
+## The thread-safety gate (`tsan.sh`)
+
+A data race in the encoder need not break a stream: it can make the output
+depend on thread timing. 20261031.1 showed it: the CI's ARM runner coded the
+1440p motion clip differently from x86 (2,712 against 2,719 kbps, where every
+earlier release agreed), while qemu-aarch64 made the x86 stream exactly.
+ThreadSanitizer found the cause on x86, tile packing on several threads
+updating two frame-wide counters (fixed in the next AVM release). So every
+release now also passes `tsan.sh`: avmenc from the same pinned source, built
+with gcc's ThreadSanitizer, encodes synthetic camera (1280×720) and screen
+clips on 2 and 4 threads (row multi-threading, 1 to 4 tiles, intraBC, good
+quality with lookahead), and any report fails the release, except the ones
+`build/tsan.supp` lists, each with the reason it cannot change the output
+(today one: an upstream AVX2 kernel that reads past its region into a
+neighbouring tile and drops those values). It needs gcc's
+TSan runtime (libtsan), ninja, ccache, nasm, ffmpeg and the DejaVu fonts. On
+kernels with 32 random mmap bits (Ubuntu 24.04's), gcc's TSan aborts with
+"unexpected memory mapping" until `sysctl vm.mmap_rnd_bits=28`; the CI job
+sets that.
+
 ## The benchmark (`bench.sh`)
 
 Every release carries `bench-<release>.md` and `.json`: each Linux target
@@ -155,6 +176,8 @@ wasm are not benchmarked.
 | `build-windows.sh` | Windows targets, llvm-mingw in a container |
 | `build-macos.sh` | macOS targets, natively (untested so far) |
 | `test.sh` | the release gate |
+| `tsan.sh` | the thread-safety gate: avmenc with ThreadSanitizer |
+| `build/tsan.supp` | the reports `tsan.sh` lets pass, each with why it does not change the output |
 | `bench.sh`, `build/bench.py` | the realtime benchmark and its report |
 | `check-upstream.sh` | compares the pins with upstream |
 | `build/lib.sh` | what the scripts share: the source, CMake options, packaging, containers |

@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### The thread-safety gate (2026-10-31)
+
+AVM 20261031.1 coded the benchmark's 1440p motion clip differently on the
+ARM runner than on x86 (2,712 against 2,719 kbps; the three releases before
+agreed), and qemu-aarch64 made the x86 stream exactly: a data race, which
+x86 hides more often. ThreadSanitizer found it on x86 (tile packing on
+several threads updating two frame-wide counters; fixed in AVM).
+
+- `tsan.sh`: avmenc from the pinned source with gcc's ThreadSanitizer
+  encodes synthetic camera and screen clips on 2 and 4 threads (realtime
+  speeds 7 to 10, 1 to 4 tiles, intraBC, good quality with lookahead); any
+  report fails it, except one in `build/tsan.supp`: AVM's AVX2 MHCCP
+  neighbour fetch reads 32 columns at a time past its region, at a tile edge
+  into the next tile's pixels, and never uses those values (multi-threaded
+  encodes give the one-thread stream).
+- `kit.yml`: a `tsan` job, which the release waits for, and `tsan.sh` in
+  shellcheck. The job sets `vm.mmap_rnd_bits=28`: gcc's TSan cannot map
+  its shadow memory with the runner kernel's 32 random bits.
+
 ### Release engineering: CI, rolling releases, Windows, macOS, benchmarks (2026-10-30)
 
 The kit could build and test, but only by hand on one machine, for Linux and

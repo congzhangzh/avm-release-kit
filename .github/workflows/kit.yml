@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: shellcheck
-        run: shellcheck -x build.sh build-windows.sh build-macos.sh test.sh bench.sh check-upstream.sh build/*.sh test/*.sh
+        run: shellcheck -x build.sh build-windows.sh build-macos.sh test.sh tsan.sh bench.sh check-upstream.sh build/*.sh test/*.sh
       - name: The bench script compiles
         run: python3 -m py_compile build/bench.py
       - run: test/publish.sh
@@ -205,6 +205,42 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # The thread-safety gate: avmenc with ThreadSanitizer, built from the same
+  # source, encodes on 2 and 4 threads; any report fails (tsan.sh)
+  tsan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache the AVM source
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/mirror
+            ~/.cache/avm-release-kit/src
+          key: avm-src-${{ hashFiles('sources.lock') }}
+
+      - name: Cache compiled objects
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/avm-release-kit/ccache-tsan
+          key: ccache-tsan-${{ github.sha }}
+          restore-keys: ccache-tsan-
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache nasm \
+            ffmpeg fonts-dejavu-core
+          # gcc's TSan runtime cannot map its shadow memory with the
+          # runner kernel's default of 32 random mmap bits
+          sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: The thread-safety gate
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: CCACHE_DIR=$HOME/.cache/avm-release-kit/ccache-tsan ./tsan.sh
+
   # The macOS builds decode the gate's vectors natively
   macos-test:
     needs: [macos, test]
@@ -279,8 +315,8 @@ jobs:
       !cancelled() && github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.scripts.result == 'success' && needs.test.result == 'success' &&
-      needs.macos-test.result == 'success'
-    needs: [scripts, test, macos-test, bench]
+      needs.macos-test.result == 'success' && needs.tsan.result == 'success'
+    needs: [scripts, test, tsan, macos-test, bench]
     runs-on: ubuntu-24.04
     # one at a time across commits: each counts N from the releases before
     # it, so two pushes close together get .1 and .2
