@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### AVM 20261103.1: the CDFs averaged in one vectorized pass (2026-11-03)
+
+- `av2_avg_cdf_symbols` (once per superblock in row-MT encodes, once per
+  frame in the decoder) builds a mask over `FRAME_CONTEXT` once and then
+  averages in a single 16-bit loop that the compiler vectorizes. The result
+  is exact for weights 3/1 and 7/1; other weights take the old path. It is
+  plain C, so every target gets it. Bit-exact streams; the encoder spends
+  1.8-4.1% fewer cycles on inter frames (measured on a Zen 5 machine).
+- The pick leaves out feature-avm-rt's AVX-512 commit (run-time detection
+  and 4-way SAD kernels). It stays out until a gate can run AVX-512 code: the
+  CI x86 runners have none.
+
 ### emsdk 6.0.13 (2026-11-03)
 
 - The wasm build uses `emscripten/emsdk:6.0.13`
