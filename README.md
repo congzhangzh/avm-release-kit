@@ -14,7 +14,7 @@ not affiliated with the Alliance for Open Media.
 |---|---|---|---|---|
 | `linux-x86_64` | `build.sh` | host gcc | SSE2…AVX2, picked at run time | encodes the vectors (the reference), decodes them |
 | `linux-aarch64` | `build.sh` | clang `--target=aarch64-linux-gnu` + lld, cross | NEON | decodes the vectors under `qemu-aarch64`; benchmarked natively in CI |
-| `wasm` | `build.sh` | Emscripten 6.0.12, the image rdp-release-kit pins | SIMD128: AVM's SSE2–SSE4.1 kernels compiled by Emscripten (no runtime CPU detection) | decoder only; decodes the vectors under node |
+| `wasm` | `build.sh` | Emscripten 6.0.13, the image rdp-release-kit pins | SIMD128: AVM's SSE2–SSE4.1 kernels compiled by Emscripten (no runtime CPU detection) | decoder only; decodes the vectors under node |
 | `windows-x86_64` | `build-windows.sh` | llvm-mingw (clang, lld, UCRT), in a container | SSE2…AVX2, picked at run time | decodes the vectors under wine |
 | `windows-aarch64` | `build-windows.sh` | llvm-mingw, in a container | NEON (fixed at build time) | **built, not tested**: nothing here runs ARM64 Windows |
 | `macos-arm64` | `build-macos.sh` | Apple clang, on a Mac | NEON | decodes the vectors natively (CI's `macos-15`) |

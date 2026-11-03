@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### emsdk 6.0.13 (2026-11-03)
+
+- The wasm build uses `emscripten/emsdk:6.0.13`
+  (`sha256:fb7864e3…`, Docker Hub's digest of the multi-arch index) instead
+  of 6.0.12, in step with rdp-release-kit, whose web client links libavm.
+  6.0.13 removes the `.bat`/`.ps1` launchers and `FS.filesystems`,
+  deprecates `MEMORY64=2`, and stops copying every export into
+  `wasmExports`. Neither kit nor the web client uses any of these. Closes #1.
+
 ### The thread-safety gate (2026-10-31)
 
 AVM 20261031.1 coded the benchmark's 1440p motion clip differently on the
