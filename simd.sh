@@ -25,9 +25,10 @@
 #         realtime speeds 9 and 10 only (SDE_CFGS), as it is slow
 # When AVX-512 may run (the CPU has it, or SDE), one encode is counted with
 # AVX-512 allowed and twice with AVM_SIMD_CAPS_MASK=0x1ff (perf stat
-# instructions:u natively, SDE's -mix total under SDE). Counts are not exact
-# from run to run (30k in 2.3G here), so the two masked runs measure that
-# noise: the counts differ when they are apart by more than 10 times the
+# instructions:u natively, SDE's -mix total under SDE), with address space
+# randomization off (setarch -R): with it on, the counts wander by 30-40k in
+# 2.3G natively and 470k under SDE, without it by about 1k. The two masked
+# runs measure what noise is left: the counts differ when they are apart by more than 10 times the
 # noise and 0.01%, which must happen exactly when the build has AVX-512
 # kernels (one 4-way SAD family alone: 0.18% on this encode), and proves
 # that those kernels ran.
@@ -77,7 +78,7 @@ if [ "${SIMD_SDE:-}" = 1 ]; then
     sde_bin=$(sde) || { bad "Intel SDE: download or check failed"; exit 1; }
     paths+=(sde)
 fi
-echo "AVX-512 kernels in the build: $kernels; AVX-512 on this CPU: $cpu512; SDE: ${sde_bin:+yes}${sde_bin:-no}"
+echo "AVX-512 kernels in the build: $kernels; AVX-512 on this CPU: $cpu512; SDE: $([ -n "$sde_bin" ] && echo yes || echo no)"
 if [ "$kernels" = yes ] && [ "$cpu512" = no ] && [ -z "$sde_bin" ]; then
     bad "the build has AVX-512 kernels, but nothing here runs them (no AVX-512 CPU, SIMD_SDE unset)"
 fi
@@ -149,13 +150,16 @@ proof() {  # proof <how> <count with AVX-512> <count masked> <count masked again
         bad "no AVX-512 kernels, yet the mask changes the count ($how: $what)"
     fi
 }
+# no address space randomization for the counts (util-linux's setarch)
+norand=()
+setarch -R true 2> /dev/null && norand=(setarch -R)
 # shellcheck disable=SC2206  # the options are words
 p_cmd=("$OUT/screen.y4m" -o "$OUT/proof.obu" $VEC_OPTS ${CFG[rt9]})
 if [ "$cpu512" = yes ]; then
     if perf stat -x, -e instructions:u -- true > /dev/null 2>&1; then
         count() {  # count <AVM_SIMD_CAPS_MASK or ""> <command…>
             local mask=$1; shift
-            AVM_SIMD_CAPS_MASK=$mask perf stat -x, -e instructions:u -o "$OUT/perf.csv" -- "$@" \
+            AVM_SIMD_CAPS_MASK=$mask perf stat -x, -e instructions:u -o "$OUT/perf.csv" -- "${norand[@]}" "$@" \
                 > /dev/null 2>&1 &&
                 awk -F, '$3 ~ /^instructions/ && $1 ~ /^[0-9]+$/ { print $1 }' "$OUT/perf.csv"
         }
@@ -170,7 +174,7 @@ if [ -n "$sde_bin" ]; then
     # (the mask goes in SDE's environment, which avmenc inherits)
     mixcount() {  # mixcount <AVM_SIMD_CAPS_MASK or ""> <command…>
         local mask=$1; shift
-        AVM_SIMD_CAPS_MASK=$mask "$sde_bin" -spr -mix -omix "$OUT/mix.txt" -- "$@" > /dev/null 2>&1 &&
+        AVM_SIMD_CAPS_MASK=$mask "${norand[@]}" "$sde_bin" -spr -mix -omix "$OUT/mix.txt" -- "$@" > /dev/null 2>&1 &&
             awk '$1 == "*total" && $2 ~ /^[0-9]+$/ { print $2; exit }' "$OUT/mix.txt"
     }
     proof "Intel SDE -spr" "$(mixcount "" "$simd_enc" "${p_cmd[@]}")" \

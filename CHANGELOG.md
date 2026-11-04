@@ -17,6 +17,11 @@
   feature-avm-rt's AVX-512 commit on top of 20261103.3: 42 of 42 encodes
   identical, and 0.18% fewer instructions with AVX-512. 20261103.3 itself
   has no AVX-512 kernels and passes as such.
+- The proof counts with address space randomization off (`setarch -R`):
+  with it on, the counts wandered by 30-40k in 2.3G natively and by 470k
+  under SDE (the first CI run, an EPYC 7763), too close to a real AVX-512
+  signal; without it, by about 1k. With AVX-512 allowed, the 4-way SAD build
+  then counts 4.10M fewer instructions on the proof encode.
 - The bench's x86 rows carry no instruction counts: GitHub's x86 VMs say
   "The instructions:u event is not supported". The ARM64 rows have them.
 
