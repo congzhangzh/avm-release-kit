@@ -25,6 +25,8 @@ set -euo pipefail
 KIT=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=build/lib.sh
 . "$KIT/build/lib.sh"
+# shellcheck source=build/vectors.sh
+. "$KIT/build/vectors.sh"
 VEC=${VECTORS:-$WORK/vectors}
 mkdir -p "$VEC"
 fail=0
@@ -32,28 +34,7 @@ ok() { echo "ok    $*"; }
 bad() { echo "FAIL  $*"; fail=1; }
 skip() { echo "skip  $*"; }
 
-clips() {
-    [ -f "$VEC/screen.y4m" ] || {
-        seq 1 400 | sed 's/^/static int line_/; s/$/ = avm_rt_test(x, y);/' > "$VEC/text.txt"
-        ffmpeg -loglevel error -y -f lavfi -i "color=c=0xf0f0f0:s=640x360:r=30,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf:textfile=$VEC/text.txt:expansion=none:fontsize=14:fontcolor=black:x=20:y=20-t*90" \
-            -frames:v 8 -pix_fmt yuv420p "$VEC/screen.y4m"
-    }
-    [ -f "$VEC/camera.y4m" ] ||
-        ffmpeg -loglevel error -y -f lavfi -i "testsrc2=s=640x360:r=30" \
-            -frames:v 8 -pix_fmt yuv420p "$VEC/camera.y4m"
-}
-
-# name -> avmenc options
-declare -A CFG=(
-    [rt6]="--rt --cpu-used=6 --lag-in-frames=0 --end-usage=q --qp=160"
-    [rt7]="--rt --cpu-used=7 --lag-in-frames=0 --end-usage=q --qp=160"
-    [rt8]="--rt --cpu-used=8 --lag-in-frames=0 --end-usage=q --qp=160"
-    [rt9]="--rt --cpu-used=9 --lag-in-frames=0 --end-usage=q --qp=160"
-    [rt10]="--rt --cpu-used=10 --lag-in-frames=0 --end-usage=q --qp=160"
-    # threaded paths (row multi-threading, tiles packed on workers)
-    [rt9mt]="--rt --cpu-used=9 --lag-in-frames=0 --end-usage=q --qp=160 --threads=4 --row-mt=1 --tile-columns=1"
-    [good5]="--good --cpu-used=5 --lag-in-frames=8 --end-usage=q --qp=140"
-)
+clips() { make_clips "$VEC"; }
 
 vectors() {
     local clip cfg v enc=$DIST/linux-x86_64/bin/avmenc ref=$DIST/linux-x86_64/bin/avmdec
@@ -63,7 +44,7 @@ vectors() {
         for cfg in "${!CFG[@]}"; do
             v=$VEC/$clip-$cfg
             # shellcheck disable=SC2086
-            if "$enc" "$VEC/$clip.y4m" -o "$v.obu" --limit=8 --threads=1 \
+            if "$enc" "$VEC/$clip.y4m" -o "$v.obu" $VEC_OPTS \
                     --test-decode=fatal ${CFG[$cfg]} > "$v.enc.log" 2>&1; then
                 "$ref" "$v.obu" --md5 -o - 2> /dev/null | cut -c1-32 > "$v.md5"
                 ok "encode $clip $cfg (test-decode clean)"

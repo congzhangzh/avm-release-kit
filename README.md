@@ -69,6 +69,7 @@ Why these toolchains:
 ./build-macos.sh                              # on a Mac: macos-arm64 and/or macos-x86_64
 ./test.sh linux-x86_64 linux-aarch64 wasm windows-x86_64 windows-aarch64   # the release gate
 ./tsan.sh                                     # the thread-safety gate (gcc's ThreadSanitizer)
+./simd.sh                                     # the SIMD gate: SIMD, SSE2 and plain C encode the same bytes
 ./bench.sh --res 720p                         # the benchmark of this machine's native target
 ```
 
@@ -139,6 +140,29 @@ kernels with 32 random mmap bits (Ubuntu 24.04's), gcc's TSan aborts with
 "unexpected memory mapping" until `sysctl vm.mmap_rnd_bits=28`; the CI job
 sets that.
 
+## The SIMD gate (`simd.sh`)
+
+A SIMD kernel is an optimization only: for every input it must return exactly
+what its C version returns. If one is off, even by a rounding step, the
+encoder's rate-distortion search sees other costs, picks other modes, and the
+stream changes; the decoder still decodes it, so `test.sh` alone would not
+notice. `simd.sh` builds avmenc twice from the pinned source with the release
+options, once for x86_64 as released (run-time CPU detection) and once with
+`AVM_TARGET_CPU=generic` (plain C, no SIMD), and encodes every vector of
+`test.sh` (`build/vectors.sh`) three ways, comparing the `.obu` files byte for
+byte:
+
+| Path | How | What runs |
+|---|---|---|
+| `simd` | the released build | the best kernels the CPU has (AVX2 on CI's x86 runners) |
+| `sse2` | the released build with `AVM_SIMD_CAPS_MASK=0` | the x86_64 baseline: the run-time picks are off, but the functions rtcd binds to SSE2 at compile time stay, since every x86_64 CPU has SSE2 |
+| `c` | the generic build | plain C, the reference |
+
+`simd` and `sse2` must each equal `c`. The same idea will check AVX-512 once
+the source has it: the same binary run natively and under an emulator that
+reports AVX-512. It runs on x86_64 and needs CMake, Ninja, ccache, nasm,
+ffmpeg and the DejaVu fonts.
+
 ## The benchmark (`bench.sh`)
 
 Every release carries `bench-<release>.md` and `.json`: each Linux target
@@ -178,6 +202,8 @@ wasm are not benchmarked.
 | `test.sh` | the release gate |
 | `tsan.sh` | the thread-safety gate: avmenc with ThreadSanitizer |
 | `build/tsan.supp` | the reports `tsan.sh` lets pass, each with why it does not change the output |
+| `simd.sh` | the SIMD gate: the encoder on its SIMD paths, the SSE2 baseline and plain C |
+| `build/vectors.sh` | the gate's clips and avmenc settings, shared by `test.sh` and `simd.sh` |
 | `bench.sh`, `build/bench.py` | the realtime benchmark and its report |
 | `check-upstream.sh` | compares the pins with upstream |
 | `build/lib.sh` | what the scripts share: the source, CMake options, packaging, containers |

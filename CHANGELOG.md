@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### The SIMD gate (2026-11-03)
+
+- `simd.sh` (CI job `simd`, which every release now waits for) builds avmenc
+  twice from the pinned source: for x86_64 as released, and with
+  `AVM_TARGET_CPU=generic`, plain C. It encodes every vector of `test.sh`
+  three ways and compares the `.obu` files byte for byte: on the CPU's SIMD
+  paths (AVX2 on CI's runners), on the SSE2 baseline
+  (`AVM_SIMD_CAPS_MASK=0`), and in C. A SIMD kernel that returns anything
+  but what its C version returns changes the encoder's decisions while the
+  decoder still decodes the stream, so `test.sh` alone could not see it.
+  `AVM_SIMD_CAPS_MASK=0` alone is not C on x86_64: rtcd binds 205
+  functions to SSE2 at compile time (`cmake/rtcd.pl` requires mmx, sse and
+  sse2 there), hence the generic build. AVM 20261103.2 and integration-avm
+  with 606685e96 pass it: 28 of 28 identical.
+- The clips and avmenc settings moved from `test.sh` to `build/vectors.sh`,
+  so both gates encode the same vectors.
+
 ### AVM 20261103.2: the nonzero count kept in the cost loop (2026-11-03)
 
 - `av2_cost_coeffs_txb` walked each transform block's scan a second time
