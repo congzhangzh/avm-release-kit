@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### AVM 20261103.2: the nonzero count kept in the cost loop (2026-11-03)
+
+- `av2_cost_coeffs_txb` walked each transform block's scan a second time
+  only to count its nonzero coefficients for the parity-hiding decision.
+  The loops before it already test every coefficient for zero, so the
+  count is now kept there. Encoder only; bit-exact streams (realtime
+  speeds 9 and 10, good quality speed 6). The function takes 1.08-1.27x
+  fewer cycles, 1.0-2.5% of the inter-frame cycles (measured on a Zen 5
+  machine). The AVX-512 commit stays out, as in 20261103.1.
+
 ### AVM 20261103.1: the CDFs averaged in one vectorized pass (2026-11-03)
 
 - `av2_avg_cdf_symbols` (once per superblock in row-MT encodes, once per
