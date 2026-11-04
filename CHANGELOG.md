@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### AVM 20261104.1: AVX-512 (2026-11-04)
+
+Four changes with one meaning: AVX-512 kernels, picked at run time, with
+the same streams and decoded pictures as before. The SIMD gate tests them on
+every CI run, natively on runners whose CPU has AVX-512 and under Intel SDE
+on the others, and proves that they ran by counting instructions with and
+without them.
+
+- Run-time AVX-512 detection (F, DQ, CD, BW and VL in CPUID leaf 7, and the
+  OS saving the opmask and ZMM state in XCR0), `ENABLE_AVX512` (on by
+  default), and 4-way high-bit-depth SAD kernels (encoder).
+- An AVX-512 forward transform for the 64-point DCT sizes (encoder). It
+  checks the size before it builds its 23 KB aligned stack frame, so other
+  sizes go straight to AVX2. The kit's instruction counts caught the first
+  version, which made every transform pay about 40 instructions for that
+  frame.
+- AVX-512 high-bit-depth convolutions, 2-D, x and y (common library:
+  encoder and decoder).
+
+Measured on a Zen 5 machine, 1440p camera, speed 10, the same binary with
+AVX-512 on and masked: 1.8% fewer encoder and 0.9% fewer decoder
+instructions, with cycles within noise. The kernels themselves run 1.1-2.6x
+faster. `AVM_SIMD_CAPS_MASK=0x1ff` turns AVX-512 off.
+
 ### The SIMD gate covers AVX-512 (2026-11-04)
 
 - `simd.sh` adds two paths: `avx2` (`AVM_SIMD_CAPS_MASK=0x1ff`) and, in CI,
