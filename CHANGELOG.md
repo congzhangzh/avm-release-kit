@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+### AVM 20261104.2: decoder speed-ups (2026-11-04)
+
+Five bit-exact changes with one meaning: the decoder does less work for the
+same pictures. Most are in code the encoder shares, so it gets a little
+faster too. Every stream and decoded picture is unchanged.
+
+- Copy the first motion field entry when all of a block's entries are equal
+  (`av2_copy_frame_mvs`).
+- `span_submv()` reads the value once and spans both references in one
+  pass (common and decoder).
+- Motion field projection skips a side whose stored references cannot
+  project. This is decided from the data the first projection of a start
+  frame recorded, not from a conformance assumption; with the trajectory tool
+  on, nothing is skipped.
+- Motion field projection reads the frame geometry once per call.
+- `avm_calloc()` gets zeroed memory from `calloc()` rather than `malloc()`
+  plus `memset()`: the same block, size check, alignment and header, so
+  `avm_free()` releases it as before. On Linux, fresh pages from `mmap` are
+  not touched until they are used.
+
+Measured by the AVM session, decoder, one thread, 30-frame 1440p speed 10
+streams, against the AVX-512 release: 11.6% fewer instructions on screen
+content and 4.7% fewer on camera content (cycles 6.3% and 2.5% fewer) for the
+first four. With the fifth, peak memory falls from 388 to 327 MB at 1440p and
+from 182 to 117 MB at 720p. That is resident memory on Linux, where pages
+that `calloc()` takes fresh from `mmap` are never touched until used. A wasm
+heap counts every allocated byte, so there it saves writes, not memory. The
+encoder runs 0.4-0.7% fewer instructions.
+
+Left out of the group on purpose: a patch that dropped a per-frame clear of
+the sub-block motion grid. It was exact only for valid streams; on a
+malformed stream (and FreeRDP decodes network input) a stale pointer could
+replace a clean NULL crash.
+
 ### AVM 20261104.1: AVX-512 (2026-11-04)
 
 Four changes with one meaning: AVX-512 kernels, picked at run time, with
