@@ -329,6 +329,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core fontconfig
+      # perf counts the instructions of each encode and decode; best effort:
+      # without it (or without a CPU counter in the VM) the report says so
+      - name: perf
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends linux-tools-common "linux-tools-$(uname -r)"
+          sudo sysctl -w kernel.perf_event_paranoid=1
+          perf stat -e instructions:u -- true
       - name: Benchmark
         env:
           BENCH_TARGET: ${{ matrix.target }}

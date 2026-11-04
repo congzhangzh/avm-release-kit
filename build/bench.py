@@ -30,6 +30,7 @@ CLIPS = {"text": True, "desktop": True, "motion": False}
 AVM_RT = ["--rt", "--cpu-used=9", "--lag-in-frames=0", "--end-usage=q", "--qp=160",
           "--threads=4", "--row-mt=1", "--tile-columns=1"]
 THRESHOLD = 0.10  # a change against the previous release worth flagging
+THRESHOLD_INSTR = 0.005  # the same for instruction counts, which barely vary
 
 
 def log(msg):
@@ -129,13 +130,72 @@ AVM_RT_VIDEO = [a for a in AVM_RT if not a.startswith(("--cpu-used", "--tile-col
     ["--cpu-used=10", "--tile-columns=2"]
 
 
+# Instructions retired in user space (perf stat -e instructions:u). Unlike
+# fps they do not depend on the CPU model or on other jobs on the host: for
+# one binary on one dispatch path they repeat to a few parts per million, so
+# releases compare on them across runners (rows on another SIMD level apart).
+def perf_status():
+    """None when perf can count user instructions here, else why not."""
+    if not shutil.which("perf"):
+        return "no perf"
+    r = run(["perf", "stat", "-x,", "-e", "instructions:u", "--", "true"])
+    if r.returncode != 0:
+        return (r.stderr.strip().splitlines() or ["perf stat failed"])[-1][:120]
+    if "<not supported>" in r.stderr or "<not counted>" in r.stderr:
+        return "the CPU counter is not available (a VM without a virtual PMU?)"
+    return None
+
+
+PERF = None  # set in cmd_run: True when perf_status() found no problem
+
+
+def counted(cmd, tmp):
+    """Runs cmd, under perf stat when PERF; returns (result, G instructions or None)."""
+    if not PERF:
+        return run(cmd), None
+    out = os.path.join(tmp, "perf.csv")
+    r = run(["perf", "stat", "-x,", "-o", out, "-e", "instructions:u", "--"] + cmd)
+    ginstr = None
+    try:
+        with open(out) as f:
+            for line in f:
+                v = line.split(",")
+                if len(v) > 2 and v[2].startswith("instructions") and v[0].isdigit():
+                    ginstr = int(v[0]) / 1e9
+    except OSError:
+        pass
+    return r, ginstr
+
+
+def simd_level():
+    """The CPU's highest x86 SIMD level as AVM's run-time detection reads it
+    (avm_ports/x86.h: AVX-512 needs F, DQ, CD, BW and VL), from the kernel's
+    flags; the architecture's name elsewhere. AVM takes that path only for
+    the kernels it has (no AVX-512 ones yet), and glibc picks its string
+    functions by the CPU too, so rows compare only on the same level."""
+    try:
+        with open("/proc/cpuinfo") as f:
+            m = re.search(r"^flags\s*:\s*(.+)$", f.read(), re.M)
+    except OSError:
+        m = None
+    if not m:
+        return platform.machine()
+    flags = set(m.group(1).split())
+    if {"avx512f", "avx512dq", "avx512cd", "avx512bw", "avx512vl"} <= flags:
+        return "avx512"
+    for level in ("avx2", "avx", "sse4_1", "ssse3", "sse2"):
+        if level in flags:
+            return level
+    return "x86"
+
+
 def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix, video=False):
     obu = os.path.join(tmp, "avm.obu")
     cmd = runner_prefix + [os.path.join(bindir, "avmenc"), clip, "-o", obu,
                            f"--limit={frames}"] + (AVM_RT_VIDEO if video else AVM_RT)
     if screen:
         cmd.append("--tune-content=screen")
-    r = run(cmd)
+    r, enc_ginstr = counted(cmd, tmp)
     if r.returncode != 0:
         raise RuntimeError(f"avmenc: {(r.stderr or r.stdout).strip()[-300:]}")
     # one line per frame from the encoder itself: its type and how long
@@ -148,8 +208,11 @@ def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix, video=False):
     size = os.path.getsize(obu)
     dec = os.path.join(bindir, "avmdec")
     fps = []
+    dec_ginstr = []
     for _ in range(3):  # decode speed: best of three
-        d = run(runner_prefix + [dec, obu, "--threads=4", "--noblit", "--summary"])
+        d, g = counted(runner_prefix + [dec, obu, "--threads=4", "--noblit", "--summary"], tmp)
+        if g is not None:
+            dec_ginstr.append(g)
         m = re.search(r"in (\d+) us \(([0-9.]+) fps\)", d.stderr + d.stdout)
         if d.returncode != 0 or not m:
             raise RuntimeError(f"avmdec: {(d.stderr or d.stdout).strip()[-300:]}")
@@ -168,6 +231,9 @@ def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix, video=False):
         "enc_fps": 1000.0 / inter_mean if inter_mean else None,
         "kbps": size * 8 / (frames / FPS) / 1000, "psnr_y": psnr_y(y4m, clip),
         "dec_fps": max(fps),
+        "enc_ginstr": enc_ginstr,
+        # the fewest of the three: threads waiting on each other add a little
+        "dec_ginstr": min(dec_ginstr) if dec_ginstr else None,
     }
 
 
@@ -249,7 +315,8 @@ def machine():
         if os.environ.get("GITHUB_ACTIONS") else "local machine")
     return {"cpu": cpu, "cores_usable": cores, "cores_total": os.cpu_count(),
             "runner": runner, "os": f"{platform.system()} {platform.release()}",
-            "arch": platform.machine()}
+            "arch": platform.machine(), "simd": simd_level(),
+            "perf": perf_status() or "instructions:u counted"}
 
 
 def tool_versions():
@@ -260,6 +327,8 @@ def tool_versions():
 
 
 def cmd_run(a):
+    global PERF
+    PERF = perf_status() is None
     bindir = os.path.join(a.dist, a.target, "bin")
     manifest = os.path.join(a.dist, a.target, "MANIFEST")
     meta = {}
@@ -303,7 +372,10 @@ def cmd_run(a):
                 out["results"].append(r)
                 log(f"ok    {res} {name:8} {codec:15} enc {fmt(r['enc_fps'])} fps, "
                     f"{fmt(r['kbps'], 0)} kbps, PSNR-Y {fmt(r['psnr_y'], 2)}, "
-                    f"dec {fmt(r['dec_fps'])} fps ({time.time() - t0:.0f}s)")
+                    f"dec {fmt(r['dec_fps'])} fps"
+                    + (f", G instr enc {fmt(r['enc_ginstr'], 3)} dec {fmt(r['dec_ginstr'], 3)}"
+                       if r.get("enc_ginstr") else "")
+                    + f" ({time.time() - t0:.0f}s)")
     path = os.path.join(a.out, f"bench-{a.target}.json")
     with open(path, "w") as f:
         json.dump(out, f, indent=1)
@@ -319,11 +391,15 @@ METRICS = [  # key, header, digits, higher is better
     ("keyframe_ms", "key ms", 1, False), ("inter_mean_ms", "inter mean ms", 1, False),
     ("inter_p95_ms", "inter p95 ms", 1, False), ("enc_fps", "enc fps", 1, True),
     ("kbps", "kbps", 0, None), ("psnr_y", "PSNR-Y dB", 2, True), ("dec_fps", "dec fps (4 thr)", 1, True),
+    ("enc_ginstr", "enc G instr", 3, False), ("dec_ginstr", "dec G instr", 3, False),
 ]
+DIGITS = {m: d for m, _, d, _ in METRICS}
 
 
 def index(doc):
-    return {(run_["target"], r["res"], r["clip"], r["codec"]): r
+    """(target, res, clip, codec) -> the row, with its machine's SIMD level"""
+    return {(run_["target"], r["res"], r["clip"], r["codec"]):
+            dict(r, _simd=run_["machine"].get("simd"))
             for run_ in doc.get("runs", []) for r in run_["results"]}
 
 
@@ -346,9 +422,14 @@ def cmd_report(a):
         if not o:
             continue
         for m, _, _, better in METRICS:
+            instr = m.endswith("_ginstr")
+            # instructions compare only on the same dispatch path: another
+            # SIMD level runs other kernels
+            if instr and (not r.get("_simd") or r.get("_simd") != o.get("_simd")):
+                continue
             if r.get(m) and o.get(m):
                 d = (r[m] - o[m]) / o[m]
-                if abs(d) > THRESHOLD:
+                if abs(d) > (THRESHOLD_INSTR if instr else THRESHOLD):
                     changes.append({"target": key[0], "res": key[1], "clip": key[2],
                                     "codec": key[3], "metric": m, "old": o[m], "new": r[m],
                                     "change": d})
@@ -372,7 +453,12 @@ def cmd_report(a):
            "wall time for the whole encode (no per-frame times). Quality settings are not "
            "matched across codecs: read kbps together with PSNR-Y. PSNR-Y is ffmpeg's, on "
            "the decoded frames. Decode fps: avmdec --threads=4 --noblit (AVM), ffmpeg with 4 "
-           "threads and its default decoder (the baselines; dav1d for AV1); best of three.", ""]
+           "threads and its default decoder (the baselines; dav1d for AV1); best of three. "
+           "G instr: billions of instructions retired in user space (perf stat -e "
+           "instructions:u) by the encode and by the decode (the fewest of three), AVM only. "
+           "They do not depend on the CPU model or the runner's load, so releases compare "
+           "on them across runners whose CPUs report the same SIMD level (the dispatch path "
+           "AVM and glibc take follows it); a change over 0.5% is flagged.", ""]
     md += ["Clips (generated by ffmpeg, see bench.sh): **text**, a page of code scrolling; "
            "**desktop**, a still desktop where a counter and a cursor change; **motion**, "
            "ffmpeg's testsrc2. 30 fps.", ""]
@@ -380,7 +466,8 @@ def cmd_report(a):
         mc = run_["machine"]
         md += [f"## {run_['target']}", "",
                f"- Machine: {mc['cpu']}, {mc['cores_usable']} of {mc['cores_total']} cores usable; "
-               f"{mc['runner']}; {mc['os']}",
+               f"{mc['runner']}; {mc['os']}; CPU SIMD level {mc.get('simd', '?')}; "
+               f"perf: {mc.get('perf', 'not recorded')}",
                f"- Build: {run_['build'].get('version', '?')}, {run_['build'].get('source', '?')}, "
                f"kit {run_['build'].get('kit', '?')}, {run_['build'].get('compiler', '?')}",
                f"- Tools: {run_['tools'].get('ffmpeg', '?')}", ""]
@@ -405,13 +492,16 @@ def cmd_report(a):
     elif not changes:
         md += [f"Nothing moved by more than {THRESHOLD:.0%} against {doc['previous']}.", ""]
     else:
-        md += [f"Changes over ±{THRESHOLD:.0%} against {doc['previous']} (runner noise "
-               "included; a change in one row only is likely noise):", "",
+        md += [f"Changes over ±{THRESHOLD:.0%} (instructions: ±{THRESHOLD_INSTR:.1%}, on the "
+               f"same SIMD path only) against {doc['previous']}. Timings include runner noise "
+               "(a change in one row only is likely noise); instruction counts do not:", "",
                "| target | res | clip | codec | metric | before | now | change |",
                "|---|---|---|---|---|---:|---:|---:|"]
         for c in changes:
             md.append(f"| {c['target']} | {c['res']} | {c['clip']} | {c['codec']} | {c['metric']} | "
-                      f"{fmt(c['old'], 2)} | {fmt(c['new'], 2)} | {c['change']:+.0%} |")
+                      f"{fmt(c['old'], max(2, DIGITS[c['metric']]))} | "
+                      f"{fmt(c['new'], max(2, DIGITS[c['metric']]))} | "
+                      f"{c['change']:+.{1 if c['metric'].endswith('_ginstr') else 0}%} |")
         md.append("")
     with open(base + ".md", "w") as f:
         f.write("\n".join(md))

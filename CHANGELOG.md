@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### The benchmark counts instructions (2026-11-04)
+
+- `bench.sh` runs each AVM encode and decode under `perf stat -e
+  instructions:u` and reports billions of instructions next to fps, plus the
+  CPU's SIMD level. GitHub's x86 runners are a mixed pool (EPYC 7763,
+  9V74 and 9V45, Xeon Platinum 8370C have all run the bench job), so fps
+  from two releases often come from different CPUs. Instruction counts
+  repeat to about 0.01% for one binary on one dispatch path, so releases
+  are compared on them, on runners of the same SIMD level, with a 0.5%
+  threshold. The CI job installs perf on a best-effort basis; when perf
+  can't count, the report says why.
+
 ### The SIMD gate (2026-11-03)
 
 - `simd.sh` (CI job `simd`, which every release now waits for) builds avmenc
