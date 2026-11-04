@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### AVM 20261103.3: bit-exact C speed-ups in the encoder and decoder (2026-11-03)
+
+Seven changes with one meaning: the same streams and decoded pictures,
+fewer cycles. Each was checked byte for byte against the release before it,
+and the group passes the SIMD gate (AVX2, the SSE2 baseline and plain C
+encode the same bytes). Measured on a Zen 5 machine at 1440p, speed 10,
+AVX-512 masked, against 20261031.2 (so including 20261103.1 and .2): the
+encoder spends 7.5-9.1% fewer cycles, the decoder 4.0-11.8%.
+
+- Realtime partition: the superblock motion estimate's projections sum
+  rows along memory and match in 32-bit lanes (encoder).
+- The sub-block mode-info pointers are set with the frame's invariants read
+  once (encoder and decoder).
+- Parity hiding without trellis has no branches on the coefficient levels
+  (encoder).
+- Motion field projection skips blocks that cannot project and reuses
+  repeated projections (encoder and decoder).
+- x86: the generic loop filter takes its length decision without a chain of
+  masks, with 18 more SSE4.1 unit tests (encoder and decoder).
+- Deblocking prefetches the next stripes of the vertical-edge pass, with gcc
+  and clang (encoder and decoder).
+- The coefficient cost has fewer branches on the levels and computes the
+  high-range length inline (encoder).
+
+The AVX-512 commit stays out until a gate can run AVX-512 code on every run.
+
 ### The benchmark counts instructions (2026-11-04)
 
 - `bench.sh` runs each AVM encode and decode under `perf stat -e
