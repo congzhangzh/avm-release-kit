@@ -146,11 +146,13 @@ A SIMD kernel is an optimization only: for every input it must return exactly
 what its C version returns. If one is off, even by a rounding step, the
 encoder's rate-distortion search sees other costs, picks other modes, and the
 stream changes; the decoder still decodes it, so `test.sh` alone would not
-notice. `simd.sh` builds avmenc twice from the pinned source with the release
-options, once for x86_64 as released (run-time CPU detection) and once with
+notice. `simd.sh` builds avmenc and avmdec twice from the pinned source with the
+release options, once for x86_64 as released (run-time CPU detection) and once with
 `AVM_TARGET_CPU=generic` (plain C, no SIMD), and encodes every vector of
 `test.sh` (`build/vectors.sh`) three ways, comparing the `.obu` files byte for
-byte:
+byte. Then each path's decoder decodes the C stream of every vector, and the
+MD5 of its frames must be the C decoder's (AVX-512 kernels in the common
+library, the convolutions for one, run in the decoder too):
 
 | Path | How | What runs |
 |---|---|---|
@@ -173,8 +175,9 @@ correctness, not speed. It is pinned in `sources.lock`, and the gate runs it
 only in CI.
 
 A byte compare can't tell whether AVX-512 ran at all: if detection failed,
-`simd` would quietly take AVX2 and still match `c`. So one encode is
-counted three times, once with AVX-512 allowed and twice masked: with
+`simd` would quietly take AVX2 and still match `c`. So one encode and one decode
+(an inter-heavy stream, for the motion compensation) are each counted three
+times, once with AVX-512 allowed and twice masked: with
 `perf stat -e instructions:u` natively, or with SDE's `-mix` total. The
 counts differ by a few parts per million from run to run (30k in 2.3G), so
 the two masked runs measure that noise. The run with AVX-512 allowed must

@@ -22,6 +22,14 @@
   under SDE (the first CI run, an EPYC 7763), too close to a real AVX-512
   signal; without it, by about 1k. With AVX-512 allowed, the 4-way SAD build
   then counts 4.10M fewer instructions on the proof encode.
+- The decoders too: each path's avmdec decodes the C stream of every
+  vector to the C decoder's MD5, and a decode is counted for the AVX-512
+  proof as well. Both counts use masks of the same length (`0xfff` and
+  `0x1ff`), because the size of the environment moves the stack by a few
+  thousand instructions. On the full AVX-512 group (feature-avm-rt
+  8cb7d2b9f, bb0ffabc0, ac2611f6a, 99b4511a3 on 20261103.3): encoder
+  −4.67M and decoder −573k instructions with AVX-512, while the two masked
+  runs differed by 386 and 4.
 - The bench's x86 rows carry no instruction counts: GitHub's x86 VMs say
   "The instructions:u event is not supported". The ARM64 rows have them.
 
