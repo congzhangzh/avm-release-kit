@@ -52,7 +52,7 @@ hand from main releases like a push.
 | `macos` | macos-15, macos-15-intel | `build-macos.sh` per architecture | yes |
 | `test` | ubuntu-24.04 | `test.sh` for the Linux, wasm and Windows targets | yes |
 | `tsan` | ubuntu-24.04 | `tsan.sh`: avmenc with ThreadSanitizer on 2 and 4 threads | yes |
-| `simd` | ubuntu-24.04 | `simd.sh`: every vector encoded on SIMD, SSE2 and plain C, byte-compared | yes |
+| `simd` | ubuntu-24.04 | `simd.sh`: every vector encoded on SIMD, AVX2, SSE2 and plain C, and under Intel SDE with AVX-512, byte-compared; proof that AVX-512 ran when the source has it | yes |
 | `macos-test` | macos-15, macos-15-intel | the same vectors decoded natively | yes |
 | `bench` | ubuntu-24.04, ubuntu-24.04-arm | `bench.sh` on the Linux targets | **no**: informational |
 | `release` | ubuntu-24.04 | names, describes and publishes | — |

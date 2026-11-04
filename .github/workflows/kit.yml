@@ -269,10 +269,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build ccache nasm \
             ffmpeg fonts-dejavu-core
+      # (no perf here: GitHub's x86 VMs expose no CPU counter, "The
+      # instructions:u event is not supported", so SDE gives the AVX-512 proof)
+      - name: Cache Intel SDE
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/avm-release-kit/sources/sde-external-*
+          key: sde-${{ hashFiles('sources.lock') }}
 
+      # SIMD_SDE=1: the AVX-512 path also runs under Intel SDE, so it is
+      # tested on every run, whichever CPU the runner has
       - name: The SIMD gate
         env:
           CCACHE_MAXSIZE: 1G
+          SIMD_SDE: 1
         run: CCACHE_DIR=$HOME/.cache/avm-release-kit/ccache-simd ./simd.sh
 
   # The macOS builds decode the gate's vectors natively

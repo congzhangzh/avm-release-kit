@@ -205,6 +205,31 @@ windows_builder() {
     builder_image windows "$(lock debian 2)" "debian:$(lock debian 2)@$(lock debian 4)"
 }
 
+# Intel SDE from sources.lock, unpacked once into WORK/sde/<version>;
+# downloads it if needed, checks its SHA-256. Prints the path of sde64.
+sde() {
+    local version url sum file dir
+    version=$(lock sde 2); url=$(lock sde 3); sum=$(lock sde 4)
+    file=$WORK/sources/${url##*/}
+    dir=$WORK/sde/$version
+    if [ ! -x "$dir/sde64" ]; then
+        mkdir -p "$WORK/sources"
+        if [ ! -f "$file" ]; then
+            echo "== Intel SDE $version (downloaded once)" >&2
+            curl -fsSL -o "$file.part" "$url" || return 1
+            mv "$file.part" "$file"
+        fi
+        if [ "$("${SHA256[@]}" < "$file" | cut -d' ' -f1)" != "$sum" ]; then
+            echo "sde: $file does not match the SHA-256 in sources.lock" >&2
+            return 1
+        fi
+        rm -rf "$dir.part"; mkdir -p "$dir.part"
+        tar -C "$dir.part" --strip-components=1 -xJf "$file"
+        rm -rf "$dir"; mv "$dir.part" "$dir"
+    fi
+    echo "$dir/sde64"
+}
+
 # The llvm-mingw toolchain from sources.lock, unpacked once into
 # WORK/llvm-mingw/<version>; downloads it if needed, checks its SHA-256.
 # Prints the directory.

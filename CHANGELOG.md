@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### The SIMD gate covers AVX-512 (2026-11-04)
+
+- `simd.sh` adds two paths: `avx2` (`AVM_SIMD_CAPS_MASK=0x1ff`) and, in CI,
+  `sde`: the released avmenc under Intel SDE 10.13.1 posing as a Sapphire
+  Rapids CPU (pinned in `sources.lock` by Intel's SHA-256; realtime speeds 9
+  and 10). GitHub's x86 runners are a mixed pool (EPYC 7763 without
+  AVX-512; EPYC 9V74 and 9V45 and Xeon 8370C with it), so SDE is what tests
+  AVX-512 on every run.
+- When the build has AVX-512 kernels, the gate proves that they ran: one
+  encode, counted with AVX-512 allowed and twice masked, must differ by more
+  than 10 times the run-to-run noise and 0.01% (natively with perf; under
+  SDE with its `-mix` total). Checked on this kit's host (Zen 5) with
+  feature-avm-rt's AVX-512 commit on top of 20261103.3: 42 of 42 encodes
+  identical, and 0.18% fewer instructions with AVX-512. 20261103.3 itself
+  has no AVX-512 kernels and passes as such.
+- The bench's x86 rows carry no instruction counts: GitHub's x86 VMs say
+  "The instructions:u event is not supported". The ARM64 rows have them.
+
 ### AVM 20261103.3: bit-exact C speed-ups in the encoder and decoder (2026-11-03)
 
 Seven changes with one meaning: the same streams and decoded pictures,

@@ -22,3 +22,9 @@ llvm_mingw    20261020  https://github.com/mstorsjo/llvm-mingw/releases/download
 # The Windows build container around it (CMake, Ninja, ccache, nasm, wine for
 # the decode test): Debian 13 by the digest of its multi-arch index.
 debian        13        docker:debian                                 sha256:2dc419c6d7fe3dad0a2f9fd469c34cc90b0f9ba642d8fde837fe3d7d34a0e7f1
+#
+# Intel's Software Development Emulator, for simd.sh on CI runners whose CPU
+# has no AVX-512 (only there: never on a developer's machine). The copy
+# vendored in petarpetrovt/setup-sde at a pinned commit; its SHA-256 is the
+# one Intel publishes for this release.
+sde           10.13.1   https://github.com/petarpetrovt/setup-sde/raw/6d2773bc0ef3005fd52e0ae0bb91782321793aec/binaries/sde-external-10.13.1-2026-07-28-lin.tar.xz 94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50
