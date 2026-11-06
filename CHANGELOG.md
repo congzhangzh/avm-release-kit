@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### AVM 20261106.1: a key frame the decoder can read, at speed 8 and up (2026-11-06)
+
+A real bug fix, on its own. `av2_nonrd_use_partition` (the realtime partition
+path, speed 8 and up) skipped the pseudo-coded marks for blocks outside the
+frame that the decoder and the RD partition search both make. The encoder
+read 0 where the decoder reads 2, accepted a block vector next to the right
+or bottom edge, and wrote a key frame the decoder rejects with "Invalid
+intrabc dv". With key frames off, a session that loses its first frame stays
+black.
+
+Encoder only: decoders and clients do not change. Streams from speed 8 and up
+can differ from the last release where a frame edge is involved.
+
+Measured by the FreeRDP session (commit 4d8faad8f on `feature-avm-rt`):
+windows of 4 captured screens at 50 sizes, 328 runs at speed 9, 117 rejected
+before and 0 after. Live, default page: 4 black of 10 connects before, 0 of 14
+after; AV2 was confirmed in use on 3 of those 14, the rest were not read.
+
+Not covered: `av2_rd_use_partition` has the same gap on its FIXED_PARTITION
+and seg_skip paths. It is untouched and untested, and nothing here uses it at
+speed 8 and up.
+
 ### AVM 20261104.2: decoder speed-ups (2026-11-04)
 
 Five bit-exact changes with one meaning: the decoder does less work for the
