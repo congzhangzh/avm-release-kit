@@ -123,16 +123,14 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # Natively on each architecture: arm64 on macos-15, x86_64 on
-  # macos-15-intel (GitHub's last Intel image). build-macos.sh has never run
-  # anywhere else: this job is its test
+  # Natively: x86_64 here on macos-15-intel (GitHub's last Intel image);
+  # arm64 builds, decodes and gates in one job (macos-arm64 below), as
+  # GitHub's macOS arm64 runners are scarce
   macos:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            runner: macos-15
           - arch: x86_64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
@@ -177,6 +175,8 @@ jobs:
   test:
     needs: [linux, windows]
     runs-on: ubuntu-24.04
+    # a hung apt mirror once held it for 13 minutes and counting
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
@@ -329,9 +329,13 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  simd-macos-arm64:
-    needs: [simd-arm64]
-    if: ${{ !cancelled() }}
+  # macOS arm64 in one job, so a round needs one of GitHub's scarce macOS arm64
+  # runners instead of three: the build (its archive is released), the
+  # gate's vectors decoded natively, and the SIMD gate (NEON against C) with
+  # the clips from simd-arm64, as Homebrew's ffmpeg has no drawtext
+  macos-arm64:
+    needs: [test, simd-arm64]
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.simd-arm64.result == 'success' }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -347,18 +351,42 @@ jobs:
       - name: Cache compiled objects
         uses: actions/cache@v6
         with:
-          path: ~/.cache/avm-release-kit/ccache-simd-macos
-          key: ccache-simd-macos-${{ github.sha }}
-          restore-keys: ccache-simd-macos-
+          path: |
+            ~/.cache/avm-release-kit/ccache-macos
+            ~/.cache/avm-release-kit/ccache-simd-macos
+          key: ccache-macos-arm64-${{ github.sha }}
+          restore-keys: ccache-macos-arm64-
+
+      # bash 4 for test.sh and simd.sh (macOS has 3.2)
+      - name: Tools
+        run: brew install bash ninja nasm ccache
+
+      - name: Build
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: ./build-macos.sh arm64
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: avm-macos-arm64
+          path: |
+            dist/macos-arm64/
+            dist/avm-*-macos-arm64.tar.gz*
+          if-no-files-found: error
+          retention-days: 3
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: vectors
+          path: vectors
+
+      - name: Decode the vectors
+        run: VECTORS=$PWD/vectors "$(brew --prefix)/bin/bash" ./test.sh macos-arm64
 
       - uses: actions/download-artifact@v8
         with:
           name: simd-clips
           path: ~/.cache/avm-release-kit/simd
-
-      # simd.sh needs bash 4 (macOS has 3.2)
-      - name: Tools
-        run: brew install bash ninja ccache
 
       - name: The SIMD gate
         env:
@@ -372,8 +400,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            runner: macos-15
           - arch: x86_64
             runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
@@ -449,8 +475,8 @@ jobs:
       needs.scripts.result == 'success' && needs.test.result == 'success' &&
       needs.macos-test.result == 'success' && needs.tsan.result == 'success' &&
       needs.simd.result == 'success' && needs.simd-arm64.result == 'success' &&
-      needs.simd-macos-arm64.result == 'success'
-    needs: [scripts, test, tsan, simd, simd-arm64, simd-macos-arm64, macos-test, bench]
+      needs.macos-arm64.result == 'success'
+    needs: [scripts, test, tsan, simd, simd-arm64, macos-arm64, macos-test, bench]
     runs-on: ubuntu-24.04
     # one at a time across commits: each counts N from the releases before
     # it, so two pushes close together get .1 and .2

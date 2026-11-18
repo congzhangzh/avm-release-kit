@@ -210,7 +210,7 @@ AVM knows NEON alone (`avm_ports/arm_cpudetect.c`); the CPU's other
 features (DotProd, I8MM, SVE, SME) are only printed.
 
 CI runs it natively on `ubuntu-24.04-arm` (`simd-arm64`) and on `macos-15`
-(`simd-macos-arm64`). On macOS it needs bash 4+ (`brew install bash`). Homebrew's
+(in `macos-arm64`, with that build and its decode test). On macOS it needs bash 4+ (`brew install bash`). Homebrew's
 ffmpeg has no `drawtext`, so the Mac takes `screen.y4m` and `camera.y4m` from
 the Linux job: copy them into `WORK/simd` by hand on a Mac, and `make_clips`
 keeps them.

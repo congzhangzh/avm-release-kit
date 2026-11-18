@@ -49,13 +49,13 @@ hand from main releases like a push.
 | `scripts` | ubuntu-24.04 | shellcheck, `test/publish.sh` (the publishing logic, fake `gh`) | yes |
 | `linux` | ubuntu-24.04 | `build.sh` per target | yes |
 | `windows` | ubuntu-24.04 | `build-windows.sh` per architecture | yes |
-| `macos` | macos-15, macos-15-intel | `build-macos.sh` per architecture | yes |
+| `macos` | macos-15-intel | `build-macos.sh x86_64` | yes |
 | `test` | ubuntu-24.04 | `test.sh` for the Linux, wasm and Windows targets | yes |
 | `tsan` | ubuntu-24.04 | `tsan.sh`: avmenc with ThreadSanitizer on 2 and 4 threads | yes |
 | `simd` | ubuntu-24.04 | `simd.sh`: every vector encoded on SIMD, AVX2, SSE2 and plain C, and under Intel SDE with AVX-512, byte-compared; proof that AVX-512 ran when the source has it | yes |
 | `simd-arm64` | ubuntu-24.04-arm | `simd.sh` on arm64: every vector encoded and decoded with NEON and in plain C, compared; fails when no NEON kernel is bound | yes |
-| `simd-macos-arm64` | macos-15 | the same on an Apple Silicon Mac (the clips from `simd-arm64`) | yes |
-| `macos-test` | macos-15, macos-15-intel | the same vectors decoded natively | yes |
+| `macos-arm64` | macos-15 | one job, as macOS arm64 runners are scarce: `build-macos.sh arm64`, the vectors decoded natively, and `simd.sh` NEON against C (the clips from `simd-arm64`) | yes |
+| `macos-test` | macos-15-intel | the same vectors decoded natively (x86_64) | yes |
 | `bench` | ubuntu-24.04, ubuntu-24.04-arm | `bench.sh` on the Linux targets | **no**: informational |
 | `release` | ubuntu-24.04 | names, describes and publishes | — |
 
