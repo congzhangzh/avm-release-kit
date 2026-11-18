@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### AVM 20261118.2: NEON deblocking two segments per call, and avmdec --row-mt (2026-11-18)
+
+- Deblocking filters two adjacent horizontal-edge segments per call where
+  the NEON kernel can take them (a new rtcd function,
+  `avm_highbd_lpf_horizontal_generic_dual`: C, SSE4.1 as two singles, NEON).
+  x86 keeps the single-segment walk. Measured by the AVM component developer on
+  an Apple M5, one thread, 5 interleaved rounds: +3.8 to 4.1% on one-tile
+  streams, +2.4 to 4.5% on FreeRDP's two-tile streams. Decoded pictures and
+  encoder output unchanged.
+- `avmdec --row-mt=1` switches on the decoder's row multithreading, which
+  libavm keeps off by default; with one tile, `-t` alone runs one thread.
+  Off unless asked, so nothing changes without the flag.
+
+The CI now runs macOS arm64 in one job (build, decode test and the NEON
+gate), as GitHub's macOS arm64 runners were too scarce for three, and the
+release gate has a 30-minute timeout.
+
 ### SIMD gate on arm64: NEON against plain C (2026-11-18)
 
 `simd.sh` runs on arm64 too (Linux aarch64 and Apple Silicon): the released
