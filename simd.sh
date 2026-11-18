@@ -92,15 +92,18 @@ simd_enc=$simd_dir/avmenc simd_dec=$simd_dir/avmdec c_enc=$c_dir/avmenc c_dec=$c
 echo "avmenc $SRC_DESC, $arch and generic ($(compiler_of "$simd_dir"))"
 kernels=no cpu512=no sde_bin=
 if [ "$arch" = arm64 ]; then
-    # what the CPU reports (only shown: AVM itself knows NEON alone)
+    # what the CPU reports (only shown: AVM itself knows NEON alone). Never
+    # fatal: under set -e a loop whose last test is false (an M1 without
+    # SME2) or a pipe that matches nothing would end the gate.
     if [ "$os" = Darwin ]; then
-        cpu=$(sysctl -n machdep.cpu.brand_string)
+        cpu=$(sysctl -n machdep.cpu.brand_string 2> /dev/null || true)
         feats=$(for f in DotProd I8MM BF16 SME SME2; do
-            [ "$(sysctl -n "hw.optional.arm.FEAT_$f" 2> /dev/null)" = 1 ] && printf ' %s' "$f"; done)
+            if [ "$(sysctl -n "hw.optional.arm.FEAT_$f" 2> /dev/null)" = 1 ]; then printf ' %s' "$f"; fi
+        done)
     else
-        cpu=$(lscpu 2> /dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
-        feats=$(grep -m1 '^Features' /proc/cpuinfo | sed 's/^[^:]*://' |
-            tr ' ' '\n' | grep -xE 'asimd|asimddp|i8mm|bf16|sve|sve2|sme' | tr '\n' ' ')
+        cpu=$(lscpu 2> /dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1 || true)
+        feats=$({ grep -m1 '^Features' /proc/cpuinfo || true; } | sed 's/^[^:]*://' |
+            tr ' ' '\n' | { grep -xE 'asimd|asimddp|i8mm|bf16|sve|sve2|sme' || true; } | tr '\n' ' ')
         feats=${feats:+ $feats}
     fi
     echo "cpu: ${cpu:-unknown}; features it reports:${feats:- none listed}"
