@@ -217,6 +217,18 @@ def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix, video=False):
         if d.returncode != 0 or not m:
             raise RuntimeError(f"avmdec: {(d.stderr or d.stdout).strip()[-300:]}")
         fps.append(float(m.group(2)))
+    # decode as the FreeRDP client does since 20261118: 4 threads with row
+    # multithreading (libavm keeps it off by default; with few tiles the
+    # threads idle without it). avmdec has --row-mt from AVM 20261118.2 on.
+    fps_rowmt = []
+    h = run(runner_prefix + [dec, "--help"])
+    if "--row-mt" in h.stdout + h.stderr:
+        for _ in range(3):
+            d = run(runner_prefix + [dec, obu, "--threads=4", "--row-mt=1", "--noblit", "--summary"])
+            m = re.search(r"in (\d+) us \(([0-9.]+) fps\)", d.stderr + d.stdout)
+            if d.returncode != 0 or not m:
+                raise RuntimeError(f"avmdec --row-mt: {(d.stderr or d.stdout).strip()[-300:]}")
+            fps_rowmt.append(float(m.group(2)))
     y4m = os.path.join(tmp, "avm.y4m")
     d = run(runner_prefix + [dec, obu, "-o", y4m])
     if d.returncode != 0:
@@ -231,6 +243,7 @@ def bench_avm(bindir, clip, screen, frames, tmp, runner_prefix, video=False):
         "enc_fps": 1000.0 / inter_mean if inter_mean else None,
         "kbps": size * 8 / (frames / FPS) / 1000, "psnr_y": psnr_y(y4m, clip),
         "dec_fps": max(fps),
+        "dec_fps_rowmt": max(fps_rowmt) if fps_rowmt else None,
         "enc_ginstr": enc_ginstr,
         # the fewest of the three: threads waiting on each other add a little
         "dec_ginstr": min(dec_ginstr) if dec_ginstr else None,
@@ -373,6 +386,7 @@ def cmd_run(a):
                 log(f"ok    {res} {name:8} {codec:15} enc {fmt(r['enc_fps'])} fps, "
                     f"{fmt(r['kbps'], 0)} kbps, PSNR-Y {fmt(r['psnr_y'], 2)}, "
                     f"dec {fmt(r['dec_fps'])} fps"
+                    + (f", row-MT {fmt(r['dec_fps_rowmt'])} fps" if r.get("dec_fps_rowmt") else "")
                     + (f", G instr enc {fmt(r['enc_ginstr'], 3)} dec {fmt(r['dec_ginstr'], 3)}"
                        if r.get("enc_ginstr") else "")
                     + f" ({time.time() - t0:.0f}s)")
@@ -391,6 +405,7 @@ METRICS = [  # key, header, digits, higher is better
     ("keyframe_ms", "key ms", 1, False), ("inter_mean_ms", "inter mean ms", 1, False),
     ("inter_p95_ms", "inter p95 ms", 1, False), ("enc_fps", "enc fps", 1, True),
     ("kbps", "kbps", 0, None), ("psnr_y", "PSNR-Y dB", 2, True), ("dec_fps", "dec fps (4 thr)", 1, True),
+    ("dec_fps_rowmt", "dec fps (4 thr, row-MT)", 1, True),
     ("enc_ginstr", "enc G instr", 3, False), ("dec_ginstr", "dec G instr", 3, False),
 ]
 DIGITS = {m: d for m, _, d, _ in METRICS}
