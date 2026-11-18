@@ -285,6 +285,86 @@ jobs:
           SIMD_SDE: 1
         run: CCACHE_DIR=$HOME/.cache/avm-release-kit/ccache-simd ./simd.sh
 
+  # The SIMD gate on arm64: NEON against plain C, natively, on Linux (GitHub's
+  # ARM runner) and on an Apple Silicon Mac. The Linux job makes the clips;
+  # the Mac takes them from it, as Homebrew's ffmpeg has no drawtext.
+  simd-arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache the AVM source
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/mirror
+            ~/.cache/avm-release-kit/src
+          key: avm-src-${{ hashFiles('sources.lock') }}
+
+      - name: Cache compiled objects
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/avm-release-kit/ccache-simd-arm64
+          key: ccache-simd-arm64-${{ github.sha }}
+          restore-keys: ccache-simd-arm64-
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache \
+            ffmpeg fonts-dejavu-core
+
+      - name: The SIMD gate
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: CCACHE_DIR=$HOME/.cache/avm-release-kit/ccache-simd-arm64 ./simd.sh
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: simd-clips
+          path: |
+            ~/.cache/avm-release-kit/simd/screen.y4m
+            ~/.cache/avm-release-kit/simd/camera.y4m
+          if-no-files-found: error
+          retention-days: 3
+
+  simd-macos-arm64:
+    needs: [simd-arm64]
+    if: ${{ !cancelled() }}
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Cache the AVM source
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/avm-release-kit/mirror
+            ~/.cache/avm-release-kit/src
+          key: avm-src-macos-${{ hashFiles('sources.lock') }}
+
+      - name: Cache compiled objects
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/avm-release-kit/ccache-simd-macos
+          key: ccache-simd-macos-${{ github.sha }}
+          restore-keys: ccache-simd-macos-
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: simd-clips
+          path: ~/.cache/avm-release-kit/simd
+
+      # simd.sh needs bash 4 (macOS has 3.2)
+      - name: Tools
+        run: brew install bash ninja ccache
+
+      - name: The SIMD gate
+        env:
+          CCACHE_MAXSIZE: 1G
+        run: CCACHE_DIR=$HOME/.cache/avm-release-kit/ccache-simd-macos "$(brew --prefix)/bin/bash" ./simd.sh
+
   # The macOS builds decode the gate's vectors natively
   macos-test:
     needs: [macos, test]
@@ -368,8 +448,9 @@ jobs:
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       needs.scripts.result == 'success' && needs.test.result == 'success' &&
       needs.macos-test.result == 'success' && needs.tsan.result == 'success' &&
-      needs.simd.result == 'success'
-    needs: [scripts, test, tsan, simd, macos-test, bench]
+      needs.simd.result == 'success' && needs.simd-arm64.result == 'success' &&
+      needs.simd-macos-arm64.result == 'success'
+    needs: [scripts, test, tsan, simd, simd-arm64, simd-macos-arm64, macos-test, bench]
     runs-on: ubuntu-24.04
     # one at a time across commits: each counts N from the releases before
     # it, so two pushes close together get .1 and .2

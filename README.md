@@ -191,6 +191,30 @@ It runs on x86_64 and needs CMake, Ninja, ccache, nasm, ffmpeg and the
 DejaVu fonts, plus perf for the native proof (GitHub's x86 VMs have no CPU
 counter, so there the proof comes from SDE).
 
+### On arm64: NEON against C
+
+On arm64 (Linux aarch64, or an Apple Silicon Mac) the same script runs two
+paths:
+
+| Path | How | What runs |
+|---|---|---|
+| `neon` | the released build (on a Mac with `build-macos.sh`'s SDK, deployment target and `AVM_TARGET_CPU=arm64`) | every NEON kernel the source has |
+| `c` | the generic build | plain C, the reference |
+
+AArch64 always has NEON, so AVM detects nothing at run time on Apple and
+rtcd binds each NEON kernel at compile time (`#define <fn> <fn>_neon` in
+`config/*_rtcd.h`): no `AVM_SIMD_CAPS_MASK` turns them off, and the generic
+build is the only C reference. The proof that NEON runs is that count: the
+gate prints how many kernels the `neon` build binds, and fails at 0.
+AVM knows NEON alone (`avm_ports/arm_cpudetect.c`); the CPU's other
+features (DotProd, I8MM, SVE, SME) are only printed.
+
+CI runs it natively on `ubuntu-24.04-arm` (`simd-arm64`) and on `macos-15`
+(`simd-macos-arm64`). On macOS it needs bash 4+ (`brew install bash`). Homebrew's
+ffmpeg has no `drawtext`, so the Mac takes `screen.y4m` and `camera.y4m` from
+the Linux job: copy them into `WORK/simd` by hand on a Mac, and `make_clips`
+keeps them.
+
 ## The benchmark (`bench.sh`)
 
 Every release carries `bench-<release>.md` and `.json`: each Linux target

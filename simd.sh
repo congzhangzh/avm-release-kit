@@ -33,10 +33,21 @@
 # noise and 0.01%, which must happen exactly when the build has AVX-512
 # kernels (one 4-way SAD family alone: 0.18% on this encode), and proves
 # that those kernels ran.
-# Needs cmake, ninja, ccache, ffmpeg and the DejaVu fonts (nasm for the
-# x86_64 build). The builds live in WORK/build/simd-*-<id>, the clips and
-# streams in WORK/simd.
+#
+# On arm64 (Linux aarch64, or an Apple Silicon Mac) there are two paths, as
+# AArch64 always has NEON and rtcd binds the NEON kernels at compile time
+# (#define <fn> <fn>_neon), so no mask turns them off:
+#   neon  the released build (on a Mac with the macOS build's options)
+#   c     the generic build
+# and the gate fails when the neon build binds no NEON kernel at all.
+#
+# Needs bash 4+ (macOS: brew install bash), cmake, ninja, ccache, ffmpeg and
+# the DejaVu fonts (nasm for the x86_64 build). Where ffmpeg has no drawtext
+# filter (Homebrew's), put screen.y4m and camera.y4m from another machine
+# into WORK/simd first: make_clips keeps clips that are there. The builds
+# live in WORK/build/simd-*-<id>, the clips and streams in WORK/simd.
 set -euo pipefail
+[ "${BASH_VERSINFO[0]}" -ge 4 ] || { echo "simd.sh needs bash 4 or newer (macOS: brew install bash)" >&2; exit 2; }
 
 KIT=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=build/lib.sh
@@ -49,7 +60,12 @@ fail=0
 ok() { echo "ok    $*"; }
 bad() { echo "FAIL  $*"; fail=1; }
 
-[ "$(uname -m)" = x86_64 ] || { echo "simd.sh runs on x86_64 (uname -m: $(uname -m))" >&2; exit 2; }
+case $(uname -m) in
+    x86_64) arch=x86_64 ;;
+    aarch64 | arm64) arch=arm64 ;;
+    *) echo "simd.sh runs on x86_64 or arm64 (uname -m: $(uname -m))" >&2; exit 2 ;;
+esac
+os=$(uname -s)
 fetch_source
 build() {  # build <name> [cmake options]: prints the build directory
     local name=$1 bdir=$WORK/build/simd-$1-$SRC_ID; shift
@@ -59,40 +75,71 @@ build() {  # build <name> [cmake options]: prints the build directory
         { tail -20 "$OUT/$name.build.log" >&2; exit 1; }
     echo "$bdir"
 }
-simd_dir=$(build x86_64)
-c_dir=$(build generic -DAVM_TARGET_CPU=generic)
-simd_enc=$simd_dir/avmenc simd_dec=$simd_dir/avmdec c_enc=$c_dir/avmenc c_dec=$c_dir/avmdec
-# rtcd lists every AVX-512 kernel the build has
-kernels=no
-grep -q '_avx512' "$WORK/build/simd-x86_64-$SRC_ID"/config/*_rtcd.h && kernels=yes
-cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1)
-flags=$(grep -m1 '^flags' /proc/cpuinfo)
-has() { case " $flags " in *" $1 "*) echo "$1" ;; esac; }
-echo "avmenc $SRC_DESC, x86_64 and generic ($(compiler_of "$WORK/build/simd-x86_64-$SRC_ID"))"
-echo "cpu: $cpu; SIMD it reports:$(for f in sse2 ssse3 sse4_1 avx avx2 avx512f; do x=$(has $f); [ -n "$x" ] && printf ' %s' "$x"; done)"
-[ -n "$(has avx2)" ] || echo "note  this CPU has no AVX2: 'simd' runs the SSE4/AVX paths only"
-# AVM's own test (avm_ports/x86.h): F, DQ, CD, BW and VL
-cpu512=yes
-for f in avx512f avx512dq avx512cd avx512bw avx512vl; do [ -n "$(has $f)" ] || cpu512=no; done
-paths=(simd avx2 sse2 c)
-sde_bin=
-if [ "${SIMD_SDE:-}" = 1 ]; then
-    sde_bin=$(sde) || { bad "Intel SDE: download or check failed"; exit 1; }
-    paths+=(sde)
+# a Mac builds as build-macos.sh does (its SDK and deployment target)
+mac=()
+if [ "$os" = Darwin ]; then
+    mac=(-DCMAKE_OSX_SYSROOT="$(xcrun --sdk macosx --show-sdk-path)"
+         -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}")
+    [ "$arch" = arm64 ] && mac+=(-DCMAKE_OSX_ARCHITECTURES=arm64 -DAVM_TARGET_CPU=arm64)
 fi
-echo "AVX-512 kernels in the build: $kernels; AVX-512 on this CPU: $cpu512; SDE: $([ -n "$sde_bin" ] && echo yes || echo no)"
-if [ "$kernels" = yes ] && [ "$cpu512" = no ] && [ -z "$sde_bin" ]; then
-    bad "the build has AVX-512 kernels, but nothing here runs them (no AVX-512 CPU, SIMD_SDE unset)"
+simd_dir=$(build "$arch" ${mac[@]+"${mac[@]}"})
+if [ "$os" = Darwin ]; then
+    c_dir=$(build generic "${mac[@]:0:2}" -DAVM_TARGET_CPU=generic)
+else
+    c_dir=$(build generic -DAVM_TARGET_CPU=generic)
+fi
+simd_enc=$simd_dir/avmenc simd_dec=$simd_dir/avmdec c_enc=$c_dir/avmenc c_dec=$c_dir/avmdec
+echo "avmenc $SRC_DESC, $arch and generic ($(compiler_of "$simd_dir"))"
+kernels=no cpu512=no sde_bin=
+if [ "$arch" = arm64 ]; then
+    # what the CPU reports (only shown: AVM itself knows NEON alone)
+    if [ "$os" = Darwin ]; then
+        cpu=$(sysctl -n machdep.cpu.brand_string)
+        feats=$(for f in DotProd I8MM BF16 SME SME2; do
+            [ "$(sysctl -n "hw.optional.arm.FEAT_$f" 2> /dev/null)" = 1 ] && printf ' %s' "$f"; done)
+    else
+        cpu=$(lscpu 2> /dev/null | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
+        feats=$(grep -m1 '^Features' /proc/cpuinfo | sed 's/^[^:]*://' |
+            tr ' ' '\n' | grep -xE 'asimd|asimddp|i8mm|bf16|sve|sve2|sme' | tr '\n' ' ')
+        feats=${feats:+ $feats}
+    fi
+    echo "cpu: ${cpu:-unknown}; features it reports:${feats:- none listed}"
+    # rtcd binds NEON at compile time: one '#define <fn> <fn>_neon' per kernel
+    neon=$(cat "$simd_dir"/config/*_rtcd.h | grep -cE '^#define [a-z0-9_]+ [a-z0-9_]+_neon$' || true)
+    echo "NEON kernels bound in the build: $neon"
+    [ "$neon" -gt 0 ] || bad "the arm64 build binds no NEON kernel: 'neon' would be plain C"
+    paths=(neon c)
+    [ "${SIMD_SDE:-}" = 1 ] && echo "note  SIMD_SDE=1 ignored: Intel SDE is for x86_64"
+else
+    # rtcd lists every AVX-512 kernel the build has
+    grep -q '_avx512' "$simd_dir"/config/*_rtcd.h && kernels=yes
+    cpu=$(sed -n 's/^model name[[:space:]]*: //p' /proc/cpuinfo | head -1)
+    flags=$(grep -m1 '^flags' /proc/cpuinfo)
+    has() { case " $flags " in *" $1 "*) echo "$1" ;; esac; }
+    echo "cpu: $cpu; SIMD it reports:$(for f in sse2 ssse3 sse4_1 avx avx2 avx512f; do x=$(has $f); [ -n "$x" ] && printf ' %s' "$x"; done)"
+    [ -n "$(has avx2)" ] || echo "note  this CPU has no AVX2: 'simd' runs the SSE4/AVX paths only"
+    # AVM's own test (avm_ports/x86.h): F, DQ, CD, BW and VL
+    cpu512=yes
+    for f in avx512f avx512dq avx512cd avx512bw avx512vl; do [ -n "$(has $f)" ] || cpu512=no; done
+    paths=(simd avx2 sse2 c)
+    if [ "${SIMD_SDE:-}" = 1 ]; then
+        sde_bin=$(sde) || { bad "Intel SDE: download or check failed"; exit 1; }
+        paths+=(sde)
+    fi
+    echo "AVX-512 kernels in the build: $kernels; AVX-512 on this CPU: $cpu512; SDE: $([ -n "$sde_bin" ] && echo yes || echo no)"
+    if [ "$kernels" = yes ] && [ "$cpu512" = no ] && [ -z "$sde_bin" ]; then
+        bad "the build has AVX-512 kernels, but nothing here runs them (no AVX-512 CPU, SIMD_SDE unset)"
+    fi
 fi
 SDE_CFGS=${SDE_CFGS:-rt9 rt10}
 # SIMD_CFGS=<names> encodes only those settings, SIMD_JOBS=<n> runs n at a
 # time (both for a quick or low-memory run; CI runs all, one per core)
 read -r -a cfgs <<< "${SIMD_CFGS:-${!CFG[*]}}"
-SIMD_JOBS=${SIMD_JOBS:-$(nproc)}
+SIMD_JOBS=${SIMD_JOBS:-$(getconf _NPROCESSORS_ONLN)}
 # path -> the command prefix it runs avmenc or avmdec with ('@' = the binary)
 runner() {  # runner <path> <simd binary> <c binary>
     case $1 in
-        simd) echo "$2" ;;
+        simd | neon) echo "$2" ;;
         avx2) echo "env AVM_SIMD_CAPS_MASK=0x1ff $2" ;;
         sse2) echo "env AVM_SIMD_CAPS_MASK=0 $2" ;;
         c) echo "$3" ;;
@@ -118,8 +165,8 @@ for clip in screen camera; do
         done
     done
 done
-# GNU xargs: each line of the file is one sh -c script
-xargs -P "$SIMD_JOBS" -d '\n' -n 1 sh -c < "$jobs"
+# each line of the file is one sh -c script (NUL-separated: BSD xargs has no -d)
+tr '\n' '\0' < "$jobs" | xargs -0 -P "$SIMD_JOBS" -n 1 sh -c
 for clip in screen camera; do
     for cfg in "${cfgs[@]}"; do
         v=$OUT/$clip-$cfg
@@ -156,7 +203,7 @@ for clip in screen camera; do
         done
     done
 done
-xargs -P "$SIMD_JOBS" -d '\n' -n 1 sh -c < "$jobs"
+tr '\n' '\0' < "$jobs" | xargs -0 -P "$SIMD_JOBS" -n 1 sh -c
 for clip in screen camera; do
     for cfg in "${cfgs[@]}"; do
         v=$OUT/$clip-$cfg
