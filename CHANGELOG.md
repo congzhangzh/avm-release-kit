@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### AVM 20261118.3: realtime screen content projects one reference combination for TMVP (2026-11-18)
+
+An encoder default, on its own. At speed 9 and 10, screen content now
+projects one reference frame combination for temporal motion vector
+prediction, as camera content already did (reduced_ref_frame_mvs_mode 1).
+Realtime screen streams change; decoders and every other setting do not.
+FreeRDP's own option for it becomes redundant but stays harmless.
+
+Measured by the AVM component developer at the FreeRDP shadow's real settings
+(speed 10, 2 tile columns, 4 threads with row multithreading, reference
+buffer 4), 18 clips (scrolling at 1 to 64 pixels per frame, a scrolling
+window, typing, cursor, clocks, desktop), one point per clip:
+
+- QP 140: bytes -0.76%, PSNR-Y +0.064 dB, overall +0.067 dB, decoder
+  instructions -2.8% (17 of 18 clips fewer).
+- QP 100 (the shadow's default): bytes -0.36%, +0.024 / +0.029 dB, decoder
+  instructions -2.5% (all 18 fewer).
+- The weakest clip, text scrolling 16 pixels per frame at 1440p: +1.8% bytes
+  and -0.09 dB overall at QP 140, -0.14 dB at QP 100, within what one point
+  scatters (about 0.4 dB). Still clips are byte-identical.
+- On an Apple M5, today's client decodes these streams 1 to 2% faster than
+  the old encoder's.
+
+The benchmark (bench.sh) also measures decoding with row multithreading, as
+the FreeRDP client decodes since today, in a column of its own.
+
 ### AVM 20261118.2: NEON deblocking two segments per call, and avmdec --row-mt (2026-11-18)
 
 - Deblocking filters two adjacent horizontal-edge segments per call where

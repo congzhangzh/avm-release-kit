@@ -8,7 +8,7 @@
 # sources").
 #
 # name        version     url                                       commit / sha256
-avm           20261118.2  git+https://github.com/congzhangzh/avm.git 567a8dcff713e2ec07e887d204bb0f52d0ab3674
+avm           20261118.3  git+https://github.com/congzhangzh/avm.git 01461a0ebf099218ad80d51a1947d325b894416b
 #
 # The WebAssembly toolchain, the same image rdp-release-kit builds its web
 # client with, so libavm links into that client unchanged.
