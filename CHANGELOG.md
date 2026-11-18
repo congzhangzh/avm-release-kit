@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### SIMD gate on arm64: NEON against plain C (2026-11-18)
+
+`simd.sh` runs on arm64 too (Linux aarch64 and Apple Silicon): the released
+build, whose NEON kernels rtcd binds at compile time, against the generic
+build, every vector's encode byte-compared and every decode MD5-compared; it
+fails when no NEON kernel is bound. CI runs it on `ubuntu-24.04-arm` and
+`macos-15`, both required for a release. First run on an Apple M5 at
+20261106.1: 28/28, 54 NEON kernels bound.
+
+### AVM 20261118.1: decoder bookkeeping, a quarter faster on screen content (2026-11-18)
+
+Ten bit-exact changes with one meaning: the decoder walks less of the frame
+for the same pictures. Every stream and decoded picture is unchanged; the
+loop filter and motion field projection share code with the encoder, whose
+streams are byte-identical too.
+
+- Mark coded blocks, and initialize the transform-skip array, one row at a
+  time.
+- Deblocking stops its edge walk at the frame's right and bottom edges,
+  tests the filter length first in its per-edge loops, and computes the edge
+  thresholds once per qindex.
+- The decoder skips the motion-compensation border copy for full-pel motion
+  vectors inside the frame.
+- Motion field projection skips bands whose motion field is already filled,
+  takes a direct path when trajectories are off, and notes the other side's
+  references in a table.
+- The decoder reuses its partition-tree nodes per superblock instead of a
+  free and calloc for every superblock.
+
+Measured by the AVM component developer on an Apple M5 (the FreeRDP client's
+target), decoder on one thread, FreeRDP-like realtime speed 9 streams with one
+tile, 5 interleaved rounds against 20261106.1 (same tree as feature-avm-rt
+4d8faad8f), without the last change: desktop 1440p 248.4 to 317.4 fps
+(+27.8%), screen 1440p +25.7%, screen 1080p +23.1%, camera 1440p +7.2%. The
+partition-tree change adds 0.3 to 3.1% on top. Checked: decoded MD5 the same
+as plain C at 4d8faad8f on 47 streams (x86 on 1 and 4 threads, arm64), the
+encoder byte-identical in 6 configurations, valgrind clean.
+
+Tried and left out, all bit-exact: a NEON entropy decoder (1.7 to 3.3%
+slower: most symbols are found at the first step, and NEON adds a fixed cost
+to each), a NEON block copy (no gain: the copy is memory traffic), and an
+arm64-only removal of the loop filter's prefetch (1 to 4.6% slower).
+
 ### AVM 20261106.1: a key frame the decoder can read, at speed 8 and up (2026-11-06)
 
 A real bug fix, on its own. `av2_nonrd_use_partition` (the realtime partition
