@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### AVM 20261118.4: the sub-block mode info grid filled once, MV spans stored directly (2026-11-18)
+
+Two bit-exact decoder changes in the parse, which is the critical path of a
+threaded decode (half or more of each frame with row multithreading):
+
+- The sub-block mode info grid is filled once per block geometry instead of
+  cell by cell. A grid entry not yet set by a block of the current frame now
+  points at its own (valid) element instead of NULL; no reader tests for
+  NULL, so only a would-be NULL dereference on malformed input changes into a
+  read of a valid element.
+- A block's sub-block motion vectors are spanned with direct stores.
+
+Measured by the AVM component developer on an Apple M5, 5 interleaved rounds
+(75 of 80 faster): FreeRDP's two-tile screen streams +2.9 to 6.4% on one
+thread and +1.7 to 2.1% at four threads with row multithreading, still
+desktops +2.5 to 4.7% / +1.4 to 4.2%, camera +1.5% / +3.0%. Decoded MD5 the
+same on 47 streams (x86 on 1 and 4 threads, arm64) and 53 with row
+multithreading; encoder output unchanged.
+
 ### AVM 20261118.3: realtime screen content projects one reference combination for TMVP (2026-11-18)
 
 An encoder default, on its own. At speed 9 and 10, screen content now
