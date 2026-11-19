@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### AVM 20261119.1: no read of another tile's mode info for the CDEF context (2026-11-19)
+
+A data race fixed, on its own. With two or more tile columns and threads
+(FreeRDP's server sends two), the CDEF strength context of a block at a
+tile's left edge read the mode info grid of the tile to its left, which
+another thread could be writing at that moment; ThreadSanitizer reported it
+on such streams, also before today's releases. It could not change pixels:
+the grid is cleared before any tile starts, and whatever block the read finds
+starts left of the tile, so the inside-tile check rejected it in every case.
+The lookup is now skipped there; the context is the same.
+
+Checked by the AVM component developer: ThreadSanitizer on 11 threaded streams
+at 2, 4 and 6 threads, 3 reports before and none after; decoded MD5 with row
+multithreading unchanged in 192 runs; encoder output unchanged in 30
+configurations (it calls the same function). Shared decoder and encoder code
+(`av2/common/pred_common.c`).
+
 ### AVM 20261118.5: the encoder's key frame, less serial work (2026-11-18)
 
 Three encoder-only changes, byte-identical output:
