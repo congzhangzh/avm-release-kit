@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### AVM 20261119.4: cheaper realtime key frames at speed 10 and up (2026-11-19)
+
+An encoder change, on its own; realtime output at speed 10 changes (inter
+frames too, as SDP is a sequence switch), speed 9 and non-realtime encodes do
+not, decoders not at all. At speed 10 and up, realtime key and intra-only
+frames skip the smooth and Paeth intra modes (luma and chroma) and use the
+reduced transform set, and the realtime sequence turns semi-decoupled
+partitioning (SDP) off.
+
+Measured by the AVM component developer at the FreeRDP shadow's settings
+against the typing-fixed encoder, 40 streams at QP 100 and 140: total bytes
++0.01%, encoder instructions -4.1%, decoder instructions -3.4%, worst PSNR
+-0.33 dB (one scrolling browser pane at QP 100). At QP 130 and 150 (the band
+around Boss Cong's QP 140): typing and clock -1.5% bytes and -0.5 dB at
+64 dB; one 1080p text scroll at QP 150 +9.2% bytes (with SDP on it would be
+-0.3%). Kept as chosen: same bytes overall, a cheaper decode for every client.
+Speed 9 and non-realtime byte-identical (6 of 6).
+
 ### AVM 20261119.3: typing no longer blurs a static block (2026-11-19)
 
 A realtime encoder fix, on its own; realtime output changes from speed 7 up,
