@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### AVM 20261119.3: typing no longer blurs a static block (2026-11-19)
+
+A realtime encoder fix, on its own; realtime output changes from speed 7 up,
+other encodes do not, decoders not at all. Since 2026-10-30 (AVM 20261103.1)
+our realtime static-block shortcut searched a static block with reference 0's
+NEARMV and GLOBALMV only, while `init_mode_skip_mask()` could already have
+masked exactly those two (reference 0's predicted-MV SAD four times the best
+reference's, which a neighbour's motion causes although the block is an
+exact copy). Nothing was left but intra: on a 1440p typing session at QP 100
+one 128x128 DC block took PSNR-Y from 65 to 43 dB, and the next 32 frames cost
+about 50 times their usual bytes until the next refresh. The static block now
+keeps those two modes searchable.
+
+Measured by the AVM component developer at the FreeRDP shadow's settings (speed
+10, 2 tile columns, 4 threads), 40 streams at QP 100 and 140: total bytes
+-1.66%; the 300-frame desktop session at QP 100 -11.3% bytes (typing -58%)
+and +1.09 dB, no typing frame below 55 dB (17 before); at QP 140 -0.6% and
++0.09 dB; encoder and decoder instructions -0.25% / -0.39%; no stream worse
+than -0.02 dB. Decoded MD5 the same on 1 and 4 threads (80 of 80).
+
 ### AVM 20261119.2: the arm64 encoder hashes blocks with the CRC32C instructions (2026-11-19)
 
 `av2_get_crc32c_value()` (the intraBC block hashes of screen content) uses
