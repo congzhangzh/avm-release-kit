@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### AVM 20261119.2: the arm64 encoder hashes blocks with the CRC32C instructions (2026-11-19)
+
+`av2_get_crc32c_value()` (the intraBC block hashes of screen content) uses
+the Armv8 CRC32C instructions where the compiler targets them
+(`__ARM_FEATURE_CRC32`, Apple clang's default), and the C version elsewhere;
+x86 already had SSE4.2. The hash_test unit test now builds for NEON targets
+too. Bitstreams unchanged.
+
+Checked by the AVM component developer: 4823 cases (lengths 0 to 300 at 16
+offsets, and large blocks) equal to the C version on qemu with and without
+CRC and on an Apple M5; hash_test 16 of 16 on arm64. On the M5 the function
+is 6.7 to 7 times faster on 128-byte blocks; on x86 the same function was
+4.9% of a key frame even with SSE4.2. A full M5 encode comparison was not run.
+
 ### AVM 20261119.1: no read of another tile's mode info for the CDEF context (2026-11-19)
 
 A data race fixed, on its own. With two or more tile columns and threads
