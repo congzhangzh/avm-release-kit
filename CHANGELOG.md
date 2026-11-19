@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### AVM 20261118.5: the encoder's key frame, less serial work (2026-11-18)
+
+Three encoder-only changes, byte-identical output:
+
+- The intraBC hash table is built on the worker threads (row and column
+  bands), not on the main thread alone.
+- The intraBC hash search looks up the frame's 4x4 and 8x8 block hashes
+  instead of hashing those blocks again.
+- The palette colour map cost derives each pixel's colour context and index
+  only where the rate uses them, without building the full colour order;
+  checked exhaustively against `av2_get_palette_color_index_context()`.
+
+Measured by the AVM component developer at FreeRDP's server settings (speed
+10, QP 100 and 140, 4 threads with row multithreading, 2 tile columns, 4
+reference slots): encoder output byte-identical in 30 of 30 configurations
+(1, 4 and 8 threads, good quality too); x86 instructions -2.9 to 4.1% on a
+1440p key frame and -2.1 to 2.3% over 30 frames; the main thread's share of
+a 4-thread key frame's CPU samples from 37.8% to 29.1%. Decoders unchanged.
+
 ### AVM 20261118.4: the sub-block mode info grid filled once, MV spans stored directly (2026-11-18)
 
 Two bit-exact decoder changes in the parse, which is the critical path of a
