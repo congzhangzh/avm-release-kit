@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### AVM 20261119.5: less work in the decoder's parse (2026-11-19)
+
+Three bit-exact decoder changes in the entropy parse, the critical path of a
+threaded decode:
+
+- Clear only the transform block's part of the coefficient levels buffer.
+- Inline the TCQ state step in the coefficient loops.
+- Look up only the coded entry of the luma intra mode list: the decoder no
+  longer builds the whole 61-entry list for every intra block (the encoder's
+  shared `get_y_intra_mode_set()` is unchanged).
+
+Decoded pictures unchanged (the kit's gate: every target decodes the vectors
+to the same MD5s; NEON, AVX2, SSE2 and plain C agree). No speed measurement
+is recorded with these commits yet; the AVM component developer will add one.
+
 ### AVM 20261119.4: cheaper realtime key frames at speed 10 and up (2026-11-19)
 
 An encoder change, on its own; realtime output at speed 10 changes (inter
