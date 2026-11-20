@@ -29,8 +29,12 @@ threaded decode:
   shared `get_y_intra_mode_set()` is unchanged).
 
 Decoded pictures unchanged (the kit's gate: every target decodes the vectors
-to the same MD5s; NEON, AVX2, SSE2 and plain C agree). No speed measurement
-is recorded with these commits yet; the AVM component developer will add one.
+to the same MD5s; NEON, AVX2, SSE2 and plain C agree). Measured by the AVM
+component developer, x86 decoder instructions on one thread against the
+typing-fixed decoder, FreeRDP's two-tile streams at Boss Cong's QP 140:
+desktop 1440p -0.93%, screen 1440p -0.68%, camera 1440p -0.83%; with reduced
+ref-frame MVs -0.30 to -0.92%. Wall time on the Apple M5 is not measured yet
+(expected about 0.3%; deferred to a quiet Mac).
 
 ### AVM 20261119.4: cheaper realtime key frames at speed 10 and up (2026-11-19)
 
