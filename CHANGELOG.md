@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### AVM 20261119.6: the realtime key frame's CfL search without repeats (2026-11-19)
+
+An encoder-only change, output unchanged. On realtime speed 10 key and
+intra-only frames the explicit CfL alpha search (24 to 42% of a 1440p key
+frame's instructions) no longer repeats chroma RD passes whose inputs did not
+change: each U alpha is evaluated once instead of once per joint sign, and
+the V loop's U pass runs once per joint sign.
+
+Measured by the AVM component developer at FreeRDP's settings (speed 10, q
+mode, 2 tile columns), key frame instructions: desktop 1440p -13.4 / -10.9 /
+-11.0% at QP 130 / 140 / 150, screen -10.7 / -10.2 / -9.9%, camera -18.9 /
+-18.6 / -18.6%. Byte-identical on 80 streams (19 clips x 30 frames and a
+300-frame session, QP 100 to 150) and 30 of 30 byte-gate streams;
+non-realtime and speed below 10 untouched.
+
 ### AVM 20261119.5: less work in the decoder's parse (2026-11-19)
 
 Three bit-exact decoder changes in the entropy parse, the critical path of a
